@@ -1,54 +1,44 @@
-import { createClient } from '@supabase/supabase-js';
-
-export interface TenantIsolationTestResult {
-  passed: boolean;
-  userAOrgId: string;
-  userBOrgId: string;
-  unauthorizedAccessPrevented: boolean;
-  details: string;
-}
+import { verifyTenantAccess } from "./tenant";
 
 /**
- * Tenant Isolation Automated Security Test.
- * Simulates query execution across two separate tenant organizations (Org A and Org B)
- * to verify Row-Level Security (RLS) policies prohibit cross-tenant data leakage.
+ * Tenant Isolation Test Suite for Rev AI — AI Sales Autopilot
+ * Verifies that tenant security boundaries strictly prevent cross-tenant access.
  */
-export async function runTenantIsolationTest(): Promise<TenantIsolationTestResult> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+export async function runTenantIsolationTests() {
+  console.log("==========================================");
+  console.log("RUNNING MULTI-TENANT ISOLATION TESTS");
+  console.log("==========================================");
 
-  const clientA = createClient(supabaseUrl, anonKey);
+  const orgAId = "11111111-1111-1111-1111-111111111111";
+  const orgBId = "22222222-2222-2222-2222-222222222222";
 
-  const mockOrgA = '00000000-0000-0000-0000-000000000001';
-  const mockOrgB = '00000000-0000-0000-0000-000000000002';
-
+  console.log(`[TEST 1] Verifying user without session cannot access Org A (${orgAId})...`);
   try {
-    // Query leads belonging to Org B using client scoped to Org A
-    const { data: crossTenantData } = await clientA
-      .from('leads')
-      .select('*')
-      .eq('organization_id', mockOrgB);
-
-    // In a properly RLS-enforced database, crossTenantData will be empty or rejected
-    const leakageDetected = crossTenantData && crossTenantData.length > 0;
-
-    return {
-      passed: !leakageDetected,
-      userAOrgId: mockOrgA,
-      userBOrgId: mockOrgB,
-      unauthorizedAccessPrevented: !leakageDetected,
-      details: leakageDetected
-        ? 'SECURITY FAILURE: Cross-tenant data leakage detected!'
-        : 'SECURITY VERIFIED: RLS prevented cross-tenant access to Organization B data.',
-    };
+    await verifyTenantAccess(orgAId);
+    console.error("❌ FAILED: User without session should not have access!");
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    return {
-      passed: true,
-      userAOrgId: mockOrgA,
-      userBOrgId: mockOrgB,
-      unauthorizedAccessPrevented: true,
-      details: `SECURITY VERIFIED: Access rejected by server policy (${errorMsg}).`,
-    };
+    if (errorMsg.includes("UNAUTHORIZED") || errorMsg.includes("TENANT_ISOLATION_ERROR")) {
+      console.log("✅ PASSED: Correctly blocked unauthenticated access.");
+    } else {
+      console.error("❌ UNEXPECTED ERROR:", errorMsg);
+    }
   }
+
+  console.log(`[TEST 2] Verifying tenant cross-contamination block for Org B (${orgBId})...`);
+  try {
+    await verifyTenantAccess(orgBId);
+    console.error("❌ FAILED: Cross-tenant access should be blocked!");
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    if (errorMsg.includes("UNAUTHORIZED") || errorMsg.includes("TENANT_ISOLATION_ERROR")) {
+      console.log("✅ PASSED: Correctly enforced tenant isolation boundary.");
+    } else {
+      console.error("❌ UNEXPECTED ERROR:", errorMsg);
+    }
+  }
+
+  console.log("==========================================");
+  console.log("MULTI-TENANT ISOLATION TESTS COMPLETE");
+  console.log("==========================================");
 }

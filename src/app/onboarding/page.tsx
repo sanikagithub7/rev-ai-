@@ -1,116 +1,93 @@
-import { createOrganizationAction } from '../auth/actions';
-import { ArrowRight, Building2, Globe, FileText, Briefcase } from 'lucide-react';
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { createOrganizationAction } from "@/app/auth/actions";
+import { ArrowRight, Building2 } from "lucide-react";
 
 export default function OnboardingPage() {
-  return (
-    <div className="min-h-screen bg-swiss-grid flex items-center justify-center p-6 selection:bg-[#12B76A]">
-      <div className="w-full max-w-xl relative">
-        {/* Background Geometric Accent Block */}
-        <div className="absolute -top-6 -left-6 w-full h-full bg-block-pink -z-10 transform -rotate-1 pointer-events-none" />
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-        <div className="border-sharp bg-white p-8 md:p-12 shadow-2xl">
-          {/* Header */}
-          <div className="mb-8 border-b border-black pb-6">
-            <div className="inline-flex items-center gap-2 bg-[#12B76A] text-black font-extrabold text-xs px-3 py-1 uppercase tracking-widest mb-4">
-              STEP 1 / MULTI-TENANT ONBOARDING
-            </div>
-            <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight text-black">
-              Create Organization
+  async function handleSubmit(formData: FormData) {
+    setLoading(true);
+    setError(null);
+
+    const res = await createOrganizationAction(formData);
+    if (res?.error) {
+      setError(res.error);
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen swiss-grid-bg flex items-center justify-center p-6 text-black">
+      <div className="w-full max-w-lg bg-white sharp-border p-8 relative">
+        <div className="w-full h-3 bg-[#20C8E8] mb-6" />
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-8 h-8 bg-black text-white sharp-border flex items-center justify-center font-bold">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+              SETUP WORKSPACE
+            </span>
+            <h1 className="text-2xl font-black uppercase tracking-tight">
+              Create Your Organization
             </h1>
-            <p className="text-xs font-bold text-black/70 uppercase tracking-widest mt-2">
-              Establish your isolated multi-tenant business workspace
-            </p>
+          </div>
+        </div>
+
+        <p className="text-xs text-neutral-600 mb-6">
+          To get started with Rev AI Sales Autopilot, initialize your company tenant workspace.
+        </p>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-600 text-red-900 text-xs font-bold uppercase">
+            {error}
+          </div>
+        )}
+
+        <form action={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider mb-1">
+              Organization Name *
+            </label>
+            <input
+              type="text"
+              name="orgName"
+              required
+              placeholder="e.g. Apex Global Sales"
+              className="w-full p-3 border border-black bg-[#F1F2F3] text-sm focus:outline-none focus:bg-white sharp-border"
+            />
           </div>
 
-          {/* Form */}
-          <form action={createOrganizationAction} className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-2">
-                Company / Business Name *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  name="name"
-                  required
-                  placeholder="e.g. Acme Automation Labs"
-                  className="w-full border-sharp bg-[#F1F2F3] px-4 py-3 text-sm text-black placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#12B76A] transition-all font-medium"
-                />
-                <Building2 className="absolute right-3 top-3.5 w-4 h-4 text-black/40" />
-              </div>
-            </div>
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider mb-1">
+              Industry Domain
+            </label>
+            <input
+              type="text"
+              name="industry"
+              placeholder="e.g. B2B Software / Real Estate"
+              className="w-full p-3 border border-black bg-[#F1F2F3] text-sm focus:outline-none focus:bg-white sharp-border"
+            />
+          </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-2">
-                Industry Sector *
-              </label>
-              <div className="relative">
-                <select
-                  name="industry"
-                  required
-                  className="w-full border-sharp bg-[#F1F2F3] px-4 py-3 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#12B76A] transition-all font-medium appearance-none"
-                >
-                  <option value="">Select Primary Industry</option>
-                  <option value="B2B Software & SaaS">B2B Software & SaaS</option>
-                  <option value="AI & Automation Services">AI & Automation Services</option>
-                  <option value="Marketing & Digital Agency">Marketing & Digital Agency</option>
-                  <option value="E-commerce & Retail">E-commerce & Retail</option>
-                  <option value="Financial & Legal Services">Financial & Legal Services</option>
-                  <option value="Healthcare & Tech">Healthcare & Tech</option>
-                  <option value="Other Business Services">Other Business Services</option>
-                </select>
-                <Briefcase className="absolute right-3 top-3.5 w-4 h-4 text-black/40 pointer-events-none" />
-              </div>
-            </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full btn-pill-primary justify-center mt-6 text-sm"
+          >
+            {loading ? "Initializing..." : "Launch Organization Workspace"} <ArrowRight className="w-4 h-4" />
+          </button>
+        </form>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-black mb-2">
-                  Company Website
-                </label>
-                <div className="relative">
-                  <input
-                    type="url"
-                    name="website"
-                    placeholder="https://company.com"
-                    className="w-full border-sharp bg-[#F1F2F3] px-4 py-3 text-sm text-black placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#12B76A] transition-all font-medium"
-                  />
-                  <Globe className="absolute right-3 top-3.5 w-4 h-4 text-black/40" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-black mb-2">
-                  Assign Owner Role
-                </label>
-                <input
-                  type="text"
-                  disabled
-                  value="OWNER (Default)"
-                  className="w-full border-sharp bg-black/10 px-4 py-3 text-sm text-black/70 font-bold uppercase cursor-not-allowed"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-2">
-                Short Business Description
-              </label>
-              <div className="relative">
-                <textarea
-                  name="description"
-                  rows={3}
-                  placeholder="Describe your primary services, core products, and customer target market..."
-                  className="w-full border-sharp bg-[#F1F2F3] px-4 py-3 text-sm text-black placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#12B76A] transition-all font-medium resize-none"
-                />
-                <FileText className="absolute right-3 top-3.5 w-4 h-4 text-black/40" />
-              </div>
-            </div>
-
-            <button type="submit" className="btn-pill-primary w-full justify-center py-4 text-sm uppercase tracking-wider mt-4">
-              Launch Workspace & Enter Dashboard <ArrowRight className="w-5 h-5" />
-            </button>
-          </form>
+        <div className="mt-8 pt-4 border-t border-neutral-200 text-center">
+          <Link href="/dashboard" className="text-xs font-bold uppercase tracking-wider text-neutral-500 hover:text-black">
+            Skip for now (go to dashboard) →
+          </Link>
         </div>
       </div>
     </div>
