@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { validateEmailFormat, isApprovedAdminEmail } from "@/lib/admin/guard";
 
 export async function signUpAction(formData: FormData) {
   const email = (formData.get("email") as string)?.trim();
@@ -13,9 +14,14 @@ export async function signUpAction(formData: FormData) {
     return { error: "Please fill in all required fields (Email, Password, Organization Name)." };
   }
 
+  // 1. Email format validation
+  if (!validateEmailFormat(email)) {
+    return { error: `Invalid email address format: "${email}". Please provide a valid email.` };
+  }
+
   const supabase = await createClient();
 
-  // 1. Sign up user via Supabase Auth
+  // 2. Sign up user via Supabase Auth
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
     password,
@@ -34,14 +40,13 @@ export async function signUpAction(formData: FormData) {
     return { error: authError.message };
   }
 
-  // Check if email confirmation is required by Supabase setup
   if (authData.user && authData.user.identities && authData.user.identities.length === 0) {
     return { error: "An account with this email already exists." };
   }
 
   if (authData.user && !authData.session) {
     return {
-      success: "Account created. Please verify your email before signing in.",
+      success: "Account created successfully. Please verify your email before signing in.",
     };
   }
 
@@ -51,7 +56,7 @@ export async function signUpAction(formData: FormData) {
 
   const userId = authData.user.id;
 
-  // 2. Insert application profile/user record
+  // 3. Insert application profile/user record
   await supabase.from("users").upsert({
     id: userId,
     auth_id: userId,
@@ -59,7 +64,10 @@ export async function signUpAction(formData: FormData) {
     name: name || email.split("@")[0],
   });
 
-  // 3. Insert organization
+  // 4. Determine user role based on strict server-side admin email whitelist
+  const assignedRole = isApprovedAdminEmail(email) ? "ADMIN" : "MEMBER";
+
+  // 5. Insert organization
   const { data: orgData, error: orgError } = await supabase
     .from("organizations")
     .insert({
@@ -70,14 +78,14 @@ export async function signUpAction(formData: FormData) {
     .single();
 
   if (!orgError && orgData) {
-    // 4. Assign user as OWNER of organization
+    // 6. Assign role
     await supabase.from("organization_members").insert({
       organization_id: orgData.id,
       user_id: userId,
-      role: "OWNER",
+      role: assignedRole,
     });
 
-    // 5. Initialize business profile
+    // 7. Initialize business profile
     await supabase.from("business_profiles").insert({
       organization_id: orgData.id,
       business_name: orgName,
@@ -94,6 +102,10 @@ export async function loginAction(formData: FormData) {
 
   if (!email || !password) {
     return { error: "Email and password are required." };
+  }
+
+  if (!validateEmailFormat(email)) {
+    return { error: `Invalid email address format: "${email}".` };
   }
 
   const supabase = await createClient();
@@ -121,45 +133,4 @@ export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/auth");
-}
-
-export async function createOrganizationAction(formData: FormData) {
-  const orgName = (formData.get("orgName") as string)?.trim();
-  const industry = (formData.get("industry") as string)?.trim();
-
-  if (!orgName) {
-    return { error: "Organization name is required." };
-  }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.getUser();
-
-  if (!user) {
-    return { error: "Unauthorized" };
-  }
-
-  // Create Organization
-  const { data: orgData, error: orgError } = await supabase
-    .from("organizations")
-    .insert({
-      name: orgName,
-      industry: industry || undefined,
-    })
-    .select()
-    .single();
-
-  if (orgError) {
-    return { error: orgError.message };
-  }
-
-  // Assign OWNER role
-  await supabase.from("organization_members").insert({
-    organization_id: orgData.id,
-    user_id: user.id,
-    role: "OWNER",
-  });
-
-  redirect("/dashboard");
 }
