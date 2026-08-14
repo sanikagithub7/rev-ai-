@@ -1,7 +1,9 @@
-<<<<<<< HEAD
 /**
  * Core Type Definitions for Rev AI — AI Sales Autopilot
  */
+
+export * from "./workflow";
+export * from "./agent";
 
 export type UserRole = "OWNER" | "ADMIN" | "SALES" | "MEMBER";
 
@@ -25,6 +27,7 @@ export interface Organization {
   industry?: string;
   website?: string;
   description?: string;
+  autonomyMode?: "SUGGEST_ONLY" | "REQUIRE_APPROVAL" | "AUTONOMOUS";
   createdAt: string;
   updatedAt: string;
 }
@@ -113,8 +116,3 @@ export interface AutomationRun {
   startedAt: string;
   completedAt?: string;
 }
-=======
-export * from './database';
-export * from './ai';
-export * from './automation';
->>>>>>> faa4a56 (feat: initialize Day 1 project architecture, documentation, and Next.js foundation)

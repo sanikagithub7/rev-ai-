@@ -1,34 +1,26 @@
-<<<<<<< HEAD
 import { createBrowserClient } from "@supabase/ssr";
-
-export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-=======
-import { createBrowserClient } from '@supabase/ssr';
 
 export function isSupabaseConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   return Boolean(
     url &&
     key &&
-    !url.includes('your-supabase-project') &&
-    !url.includes('placeholder') &&
-    !key.includes('your-supabase-anon-key') &&
-    !key.includes('placeholder')
+    !url.includes("your-supabase") &&
+    !url.includes("placeholder")
   );
 }
 
 export function createClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes("your-supabase")
+      ? process.env.NEXT_PUBLIC_SUPABASE_URL
+      : "https://placeholder.supabase.co";
+
   const supabaseAnonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    'placeholder-anon-key';
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes("your-supabase")
+      ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      : "placeholder-anon-key";
 
   return createBrowserClient(supabaseUrl, supabaseAnonKey);
->>>>>>> faa4a56 (feat: initialize Day 1 project architecture, documentation, and Next.js foundation)
 }

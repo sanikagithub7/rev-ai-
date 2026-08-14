@@ -94,40 +94,40 @@ export default async function DashboardLayout({
               <Link href="/dashboard" className="flex items-center gap-3 px-3 py-2 text-xs font-extrabold uppercase bg-black text-white border-sharp">
                 <LayoutDashboard className="w-4 h-4 text-[#12B76A]" /> Dashboard
               </Link>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 hover:text-black cursor-not-allowed">
-                <span className="flex items-center gap-3"><Users className="w-4 h-4" /> Leads</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Phase 2</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 hover:text-black cursor-not-allowed">
-                <span className="flex items-center gap-3"><MessageSquare className="w-4 h-4" /> Conversations</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Phase 2</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 hover:text-black cursor-not-allowed">
-                <span className="flex items-center gap-3"><Zap className="w-4 h-4" /> Automations</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Phase 2</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 hover:text-black cursor-not-allowed">
-                <span className="flex items-center gap-3"><Calendar className="w-4 h-4" /> Meetings</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Phase 2</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 hover:text-black cursor-not-allowed">
-                <span className="flex items-center gap-3"><BarChart3 className="w-4 h-4" /> Analytics</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Phase 2</span>
-              </div>
+              <Link href="/dashboard/leads" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><Users className="w-4 h-4 text-[#12B76A]" /> Leads</span>
+                <span className="text-[10px] bg-black text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
+              <Link href="/dashboard/conversations" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><MessageSquare className="w-4 h-4 text-[#12B76A]" /> Conversations</span>
+                <span className="text-[10px] bg-[#12B76A] text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
+              <Link href="/dashboard/workflows" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><Zap className="w-4 h-4 text-[#12B76A]" /> Workflows</span>
+                <span className="text-[10px] bg-black text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
+              <Link href="/dashboard/meetings" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><Calendar className="w-4 h-4 text-[#12B76A]" /> Meetings</span>
+                <span className="text-[10px] bg-[#12B76A] text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
+              <Link href="/dashboard/analytics" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><BarChart3 className="w-4 h-4 text-[#12B76A]" /> Analytics</span>
+                <span className="text-[10px] bg-black text-white px-1.5 py-0.5 font-bold">REAL-TIME</span>
+              </Link>
             </nav>
 
             <div className="text-[10px] font-extrabold text-black/50 uppercase tracking-widest mt-6 mb-3 px-2">
               Knowledge & Rules
             </div>
             <nav className="space-y-1">
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 cursor-not-allowed">
-                <span className="flex items-center gap-3"><Database className="w-4 h-4" /> Knowledge Base</span>
-                <span className="text-[10px] bg-[#12B76A] text-black px-1 py-0.5">Day 3</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black/60 cursor-not-allowed">
-                <span className="flex items-center gap-3"><Shield className="w-4 h-4" /> Security & Team</span>
-                <span className="text-[10px] bg-black/10 px-1 py-0.5">Active</span>
-              </div>
+              <Link href="/dashboard/knowledge" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><Database className="w-4 h-4 text-[#12B76A]" /> Knowledge Base</span>
+                <span className="text-[10px] bg-[#12B76A] text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
+              <Link href="/dashboard/team" className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 border-sharp">
+                <span className="flex items-center gap-3"><Shield className="w-4 h-4 text-[#12B76A]" /> Security & Team</span>
+                <span className="text-[10px] bg-black text-white px-1.5 py-0.5 font-bold">ACTIVE</span>
+              </Link>
             </nav>
           </div>
         </aside>

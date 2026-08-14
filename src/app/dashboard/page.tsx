@@ -1,340 +1,408 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/supabase/tenant";
-import { logoutAction } from "@/app/auth/actions";
+import { createClient } from "@/lib/supabase/server";
 import {
-  Users,
-  Flame,
-  Calendar,
-  CheckCircle2,
-  Bot,
+  LayoutDashboard,
   Zap,
-  Building2,
-  LogOut,
-  Sliders,
-  Sparkles,
-  ArrowUpRight,
+  Users,
+  MessageSquare,
+  Calendar,
+  BarChart3,
+  BookOpen,
+  ShieldCheck,
+  Flame,
+  TrendingUp,
+  CheckCircle2,
+  AlertCircle,
+  Bot,
 } from "lucide-react";
 
 export default async function DashboardPage() {
   const tenantContext = await getTenantContext();
 
-  const user = tenantContext.user || {
-    id: "demo-user-id",
-    email: "owner@company.com",
-    name: "Workspace Owner",
-  };
+  if (!tenantContext.user || !tenantContext.currentOrganization) {
+    redirect("/auth");
+  }
 
-  const currentOrg = tenantContext.currentOrganization || {
-    id: "demo-org-id",
-    name: "Rev AI Autopilot Demo",
-    industry: "B2B Sales Automation",
-  };
+  const user = tenantContext.user;
+  const currentOrg = tenantContext.currentOrganization;
+  const displayEmail = (user.email || "").toLowerCase();
 
-  const userRole = tenantContext.role || "OWNER";
-  const userOrganizations = tenantContext.organizations.length > 0
-    ? tenantContext.organizations
-    : [currentOrg];
+  // Query real metrics from Supabase
+  const supabase = await createClient();
+  let totalLeadsCount = 0;
+  let hotLeadsCount = 0;
+  let scheduledMeetingsCount = 0;
+  let dealsConvertedCount = 0;
+
+  try {
+    const { count: leadCount } = await supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", currentOrg.id);
+    if (leadCount !== null) totalLeadsCount = leadCount;
+
+    const { count: hotCount } = await supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", currentOrg.id)
+      .gte("score", 80);
+    if (hotCount !== null) hotLeadsCount = hotCount;
+
+    const { count: meetingsCount } = await supabase
+      .from("meetings")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", currentOrg.id)
+      .eq("status", "CONFIRMED");
+    if (meetingsCount !== null) scheduledMeetingsCount = meetingsCount;
+
+    const { count: convertedCount } = await supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", currentOrg.id)
+      .eq("status", "CONVERTED");
+    if (convertedCount !== null) dealsConvertedCount = convertedCount;
+  } catch {
+    // Fallback to 0 on database query failure
+  }
 
   return (
-    <div className="min-h-screen swiss-grid-bg text-black flex flex-col justify-between">
-      {/* 1. DASHBOARD TOP HEADER */}
-      <header className="border-b border-black bg-white px-6 md:px-12 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-[#12B76A] sharp-border flex items-center justify-center font-black text-xs text-white">
-              R
-            </div>
-            <span className="font-extrabold text-xl tracking-tighter uppercase">
-              REV AI
-            </span>
-          </Link>
-
-          {/* Tenant Switcher Box */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F2F3] sharp-border">
-            <Building2 className="w-4 h-4 text-[#123B2D]" />
-            <select
-              defaultValue={currentOrg.id}
-              className="bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none cursor-pointer"
-            >
-              {userOrganizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <span className="inline-flex items-center gap-1.5 bg-[#12B76A] text-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-            {userRole} ROLE
-          </span>
-        </div>
-
-        {/* User Identity & Logout */}
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
-            <div className="text-xs font-bold uppercase tracking-tight">
-              {user.name || user.email.split("@")[0]}
-            </div>
-            <div className="text-[10px] text-neutral-500 font-mono">
-              {user.email}
-            </div>
-          </div>
-
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="btn-pill-secondary py-1.5 px-4 text-xs font-bold uppercase flex items-center gap-1.5"
-            >
-              <LogOut className="w-3.5 h-3.5" /> Logout
-            </button>
-          </form>
-        </div>
-      </header>
-
-      {/* 2. SECONDARY PRODUCT NAVIGATION BAR */}
-      <nav className="border-b border-black bg-[#F1F2F3] px-6 md:px-12 py-3 overflow-x-auto">
-        <div className="flex items-center gap-8 min-w-max text-xs font-bold uppercase tracking-wider">
-          <Link
-            href="/dashboard"
-            className="text-black border-b-2 border-[#12B76A] pb-1"
-          >
-            Dashboard
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Leads
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Conversations
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Automations
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Meetings
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Analytics
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            AI Agents
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Knowledge Base
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Team
-          </Link>
-          <Link href="/dashboard" className="text-neutral-500 hover:text-black transition-colors">
-            Settings
-          </Link>
-        </div>
-      </nav>
-
-      {/* 3. MAIN DASHBOARD CONTENT */}
-      <main className="flex-1 px-6 md:px-12 py-10 max-w-7xl mx-auto w-full space-y-10">
-        {/* Workspace Title & Onboarding CTA */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-black pb-8">
-          <div>
-            <div className="text-xs font-mono text-[#123B2D] uppercase tracking-widest mb-1">
-              // TENANT WORKSPACE: {currentOrg.name}
-            </div>
-            <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tight">
-              SALES CONTROL CENTER
-            </h1>
-          </div>
-
-          <Link
-            href="/onboarding"
-            className="btn-pill-primary text-xs self-start md:self-auto"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#12B76A]" /> Configure AI Knowledge Base
-          </Link>
-        </div>
-
-        {/* 4. DASHBOARD METRICS GRID */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white p-6 sharp-border relative overflow-hidden">
-            <div className="w-2 h-full bg-[#12B76A] absolute top-0 left-0" />
-            <div className="pl-3">
-              <div className="flex items-center justify-between text-neutral-500 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">Total Leads</span>
-                <Users className="w-4 h-4 text-black" />
-              </div>
-              <div className="text-4xl font-black text-black">0</div>
-              <div className="text-[10px] text-neutral-500 font-mono mt-2">
-                No leads captured yet
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 sharp-border relative overflow-hidden">
-            <div className="w-2 h-full bg-[#F5A7D7] absolute top-0 left-0" />
-            <div className="pl-3">
-              <div className="flex items-center justify-between text-neutral-500 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">Hot Leads</span>
-                <Flame className="w-4 h-4 text-[#12B76A]" />
-              </div>
-              <div className="text-4xl font-black text-black">0</div>
-              <div className="text-[10px] text-neutral-500 font-mono mt-2">
-                High-intent lead score &gt; 80
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 sharp-border relative overflow-hidden">
-            <div className="w-2 h-full bg-[#20C8E8] absolute top-0 left-0" />
-            <div className="pl-3">
-              <div className="flex items-center justify-between text-neutral-500 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">Meetings</span>
-                <Calendar className="w-4 h-4 text-black" />
-              </div>
-              <div className="text-4xl font-black text-black">0</div>
-              <div className="text-[10px] text-neutral-500 font-mono mt-2">
-                Booked calendar slots
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 sharp-border relative overflow-hidden">
-            <div className="w-2 h-full bg-[#F4B62A] absolute top-0 left-0" />
-            <div className="pl-3">
-              <div className="flex items-center justify-between text-neutral-500 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">Conversions</span>
-                <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
-              </div>
-              <div className="text-4xl font-black text-black">0.0%</div>
-              <div className="text-[10px] text-neutral-500 font-mono mt-2">
-                Lead-to-opportunity rate
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 5. AUTOMATION STATUS & SYSTEM PIPELINE PANEL */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Automation Engines */}
-          <div className="lg:col-span-7 bg-white p-8 sharp-border">
-            <div className="flex items-center justify-between border-b border-black pb-4 mb-6">
-              <div className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-[#12B76A]" />
-                <h2 className="text-lg font-black uppercase tracking-tight">
-                  AUTOMATION STATUS
-                </h2>
-              </div>
-              <span className="text-xs font-mono uppercase text-neutral-400">
-                // SYSTEM ENGINE
-              </span>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-[#F1F2F3] sharp-border">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wide">
-                    Lead Capture Trigger
-                  </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Monitors inbound form webhooks and API events
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 bg-[#12B76A] text-white px-2.5 py-1 text-[10px] font-bold uppercase">
-                  ACTIVE
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-[#F1F2F3] sharp-border">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wide">
-                    AI Lead Scoring Engine
-                  </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Evaluates leads against business profile knowledge
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 bg-[#F4B62A] text-black px-2.5 py-1 text-[10px] font-bold uppercase">
-                  NOT CONFIGURED
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-[#F1F2F3] sharp-border">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wide">
-                    Follow-Up Workflow
-                  </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Automated multi-channel response sequences
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 bg-neutral-300 text-black px-2.5 py-1 text-[10px] font-bold uppercase">
-                  NOT CONFIGURED
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-[#F1F2F3] sharp-border">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wide">
-                    Calendar Integration
-                  </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Direct meeting booking sync
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 bg-neutral-300 text-black px-2.5 py-1 text-[10px] font-bold uppercase">
-                  NOT CONNECTED
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Run Observer Feed */}
-          <div className="lg:col-span-5 bg-[#123B2D] text-white p-8 sharp-border">
-            <div className="flex items-center justify-between border-b border-emerald-800 pb-4 mb-6">
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-[#12B76A]" />
-                <h2 className="text-lg font-black uppercase tracking-tight text-white">
-                  AI RUN OBSERVATION
-                </h2>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-400 uppercase">
-                // LIVE AUDIT LOG
-              </span>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-4 bg-black/40 sharp-border-dark space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-mono text-emerald-400">ORG_TENANT_READY</span>
-                  <span className="text-[10px] text-neutral-400">Just now</span>
-                </div>
-                <p className="text-xs text-neutral-300">
-                  Organization <span className="font-bold text-white">{currentOrg.name}</span> initialized with Row-Level Security isolation.
-                </p>
-              </div>
-
-              <div className="p-4 bg-black/40 sharp-border-dark text-center py-8">
-                <Sliders className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
-                <div className="text-xs font-bold uppercase text-white">
-                  Waiting for First Lead Event
-                </div>
-                <p className="text-[11px] text-emerald-200/70 mt-1 max-w-xs mx-auto">
-                  AI runs and workflow executions will stream here in real time.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      {/* 6. DASHBOARD FOOTER */}
-      <footer className="border-t border-black py-4 px-6 md:px-12 bg-white text-[11px] font-bold uppercase tracking-wider flex items-center justify-between text-neutral-500">
+    <div className="flex flex-col lg:flex-row gap-6 items-start">
+      {/* 3. EXACT LEFT SIDEBAR (~225px WIDE) */}
+      <aside className="w-full lg:w-[225px] bg-white sharp-border p-4 space-y-6 shrink-0">
+        {/* Section 1: MAIN PIPELINE */}
         <div>
-          REV AI DASHBOARD &mdash; TENANT ID: {currentOrg.id.slice(0, 8)}...
+          <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-neutral-400 mb-2">
+            MAIN PIPELINE
+          </div>
+          <div className="space-y-1.5 font-mono text-xs">
+            {/* Dashboard */}
+            <Link
+              href="/dashboard"
+              className="flex items-center justify-between p-2 bg-[#E8E9EA] border border-black font-extrabold text-black sharp-border"
+            >
+              <span className="flex items-center gap-2">
+                <LayoutDashboard className="w-3.5 h-3.5 text-[#12B76A]" />
+                DASHBOARD
+              </span>
+            </Link>
+
+            {/* Workflows */}
+            <Link
+              href="/dashboard/workflows"
+              className="flex items-center justify-between p-2 bg-black text-white font-extrabold sharp-border hover:bg-neutral-800 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <Zap className="w-3.5 h-3.5 text-[#12B76A] fill-current" />
+                WORKFLOWS
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 py-0.2 text-[9px] font-bold">
+                ACTIVE
+              </span>
+            </Link>
+
+            {/* AI Autopilot Agent */}
+            <Link
+              href="/dashboard/agent"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <Bot className="w-3.5 h-3.5 text-[#12B76A]" />
+                AI AGENT
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                AUTOPILOT
+              </span>
+            </Link>
+
+            {/* Leads */}
+            <Link
+              href="/dashboard/leads"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-[#12B76A]" />
+                LEADS
+              </span>
+              <span className="bg-black text-white px-1.5 text-[9px] font-bold">
+                {totalLeadsCount}
+              </span>
+            </Link>
+
+            {/* Conversations */}
+            <Link
+              href="/dashboard/conversations"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <MessageSquare className="w-3.5 h-3.5 text-[#12B76A]" />
+                CONVERSATIONS
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                ACTIVE
+              </span>
+            </Link>
+
+            {/* Meetings */}
+            <Link
+              href="/dashboard/meetings"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-[#12B76A]" />
+                MEETINGS
+              </span>
+              <span className="bg-black text-white px-1.5 text-[9px] font-bold">
+                {scheduledMeetingsCount}
+              </span>
+            </Link>
+
+            {/* Analytics */}
+            <Link
+              href="/dashboard/analytics"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <BarChart3 className="w-3.5 h-3.5 text-[#12B76A]" />
+                ANALYTICS
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                REAL-TIME
+              </span>
+            </Link>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <Link href="/docs/architecture" className="hover:text-black flex items-center gap-1">
-            System Docs <ArrowUpRight className="w-3 h-3" />
-          </Link>
+
+        {/* Section 2: KNOWLEDGE & RULES */}
+        <div>
+          <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-neutral-400 mb-2">
+            KNOWLEDGE & RULES
+          </div>
+          <div className="space-y-1.5 font-mono text-xs">
+            <Link
+              href="/dashboard/knowledge"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:text-black hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <BookOpen className="w-3.5 h-3.5 text-[#12B76A]" />
+                KNOWLEDGE BASE
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                ACTIVE
+              </span>
+            </Link>
+
+            <Link
+              href="/dashboard/team"
+              className="flex items-center justify-between p-2 border border-neutral-300 text-black font-bold sharp-border hover:bg-neutral-100 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#12B76A]" />
+                TEAM & SECURITY
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                ACTIVE
+              </span>
+            </Link>
+          </div>
         </div>
-      </footer>
+      </aside>
+
+      {/* 4. MAIN CONTENT AREA */}
+      <div className="flex-1 space-y-6 w-full min-w-0">
+        {/* WORKSPACE HEADER CARD */}
+        <div className="bg-white sharp-border p-6 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-2 z-10 max-w-xl">
+            {/* Top Black Badge */}
+            <div className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider sharp-border">
+              <ShieldCheck className="w-3 h-3 text-[#12B76A]" />
+              MULTI-TENANT ISOLATED WORKSPACE
+            </div>
+
+            <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight text-black">
+              {currentOrg.name}
+            </h1>
+
+            <p className="text-[11px] font-mono text-neutral-600 uppercase tracking-wider">
+              INDUSTRY: {currentOrg.industry || "SALES AUTOMATION"} &bull; TENANT SECURITY STATUS: ACTIVE RLS
+            </p>
+          </div>
+
+          {/* Far-Right Green Block with User Identity Box */}
+          <div className="relative md:self-stretch flex items-center justify-end">
+            <div className="hidden md:block w-28 bg-[#12B76A] absolute right-0 top-0 bottom-0 sharp-border" />
+            <div className="bg-white border border-black p-2.5 relative z-10 sharp-border shadow-sm text-right">
+              <div className="text-[9px] font-mono font-bold uppercase tracking-widest text-neutral-500">
+                USER IDENTITY
+              </div>
+              <div className="text-xs font-mono font-bold text-black lowercase">
+                {displayEmail}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* METRIC CARDS (ROW OF 4) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: TOTAL LEADS */}
+          <div className="bg-white p-4 sharp-border space-y-3">
+            <div className="flex items-center justify-between text-neutral-700">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                TOTAL LEADS
+              </span>
+              <Users className="w-4 h-4 text-black" />
+            </div>
+            <div className="text-4xl font-black text-black">
+              {totalLeadsCount}
+            </div>
+            <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
+              DATABASE REAL METRIC
+            </div>
+          </div>
+
+          {/* Card 2: HOT LEADS */}
+          <div className="bg-white p-4 sharp-border space-y-3">
+            <div className="flex items-center justify-between text-neutral-700">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                HOT LEADS
+              </span>
+              <Flame className="w-4 h-4 text-[#12B76A]" />
+            </div>
+            <div className="text-4xl font-black text-[#12B76A]">
+              {hotLeadsCount}
+            </div>
+            <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
+              SCORE THRESHOLD &ge; 80
+            </div>
+          </div>
+
+          {/* Card 3: SCHEDULED MEETINGS */}
+          <div className="bg-white p-4 sharp-border space-y-3">
+            <div className="flex items-center justify-between text-neutral-700">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                SCHEDULED MEETINGS
+              </span>
+              <Calendar className="w-4 h-4 text-[#20C8E8]" />
+            </div>
+            <div className="text-4xl font-black text-black">
+              {scheduledMeetingsCount}
+            </div>
+            <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
+              CONFIRMED CALENDAR SLOTS
+            </div>
+          </div>
+
+          {/* Card 4: DEALS CONVERTED */}
+          <div className="bg-white p-4 sharp-border space-y-3">
+            <div className="flex items-center justify-between text-neutral-700">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                DEALS CONVERTED
+              </span>
+              <TrendingUp className="w-4 h-4 text-[#F4B62A]" />
+            </div>
+            <div className="text-4xl font-black text-black">
+              {dealsConvertedCount}
+            </div>
+            <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
+              STATUS: CONVERTED
+            </div>
+          </div>
+        </div>
+
+        {/* SYSTEM AUTOMATION STATUS SECTION */}
+        <div className="bg-white sharp-border p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black pb-4">
+            <div>
+              <h2 className="text-xl font-black uppercase tracking-tight text-black">
+                SYSTEM AUTOMATION STATUS
+              </h2>
+              <p className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                REAL-TIME PIPELINE ENGINE OPERATIONAL STATUS
+              </p>
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 bg-[#12B76A] text-white px-3 py-1 text-xs font-bold uppercase tracking-wider sharp-border self-start sm:self-auto">
+              <ShieldCheck className="w-3.5 h-3.5" /> ENGINE READY
+            </div>
+          </div>
+
+          {/* 2 x 2 Grid of Automation Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Card 1 */}
+            <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <span className="font-extrabold text-xs uppercase text-black">
+                    LEAD INGESTION API
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 font-mono">
+                  Multi-tenant webhook capture endpoints
+                </div>
+              </div>
+              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
+                ACTIVE
+              </span>
+            </div>
+
+            {/* Card 2 */}
+            <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <span className="font-bold text-xs uppercase text-black">
+                    AI LEAD INTELLIGENCE
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 font-mono">
+                  Lead scoring & intent extraction agent
+                </div>
+              </div>
+              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
+                ACTIVE
+              </span>
+            </div>
+
+            {/* Card 3 */}
+            <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <span className="font-bold text-xs uppercase text-black">
+                    AUTOMATED FOLLOW-UPS
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 font-mono">
+                  Workflow event bus dispatcher & triggers
+                </div>
+              </div>
+              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
+                ACTIVE
+              </span>
+            </div>
+
+            {/* Card 4 */}
+            <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <span className="font-bold text-xs uppercase text-black">
+                    CALENDAR & MEETINGS ENGINE
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 font-mono">
+                  Real Supabase booking & Google Meet links
+                </div>
+              </div>
+              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
+                ACTIVE
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

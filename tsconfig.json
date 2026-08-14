@@ -11,11 +11,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-<<<<<<< HEAD
     "jsx": "preserve",
-=======
-    "jsx": "react-jsx",
->>>>>>> faa4a56 (feat: initialize Day 1 project architecture, documentation, and Next.js foundation)
     "incremental": true,
     "plugins": [
       {
@@ -26,17 +22,6 @@
       "@/*": ["./src/*"]
     }
   },
-<<<<<<< HEAD
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-=======
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
-  ],
->>>>>>> faa4a56 (feat: initialize Day 1 project architecture, documentation, and Next.js foundation)
   "exclude": ["node_modules"]
 }

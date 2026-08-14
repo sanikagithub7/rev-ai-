@@ -6,11 +6,23 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  const path = request.nextUrl.pathname;
+
+  // Protect /admin/dashboard routes with HTTP-only admin session check
+  if (path.startsWith("/admin")) {
+    const adminCookie = request.cookies.get("rev_ai_admin_session");
+    if (!adminCookie || !adminCookie.value) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth";
+      return NextResponse.redirect(url);
+    }
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes("your-supabase")) {
-    // If Supabase credentials are not configured yet, skip auth blocking in development
+    // If Supabase credentials are not configured yet, skip user auth blocking in development
     return supabaseResponse;
   }
 
@@ -35,12 +47,10 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.getUser();
 
-  const path = request.nextUrl.pathname;
-
-  // Protect /dashboard and /onboarding
+  // Protect /dashboard and /onboarding for normal users
   if (!user && (path.startsWith("/dashboard") || path.startsWith("/onboarding"))) {
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/login";
+    url.pathname = "/auth";
     return NextResponse.redirect(url);
   }
 
