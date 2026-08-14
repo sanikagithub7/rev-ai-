@@ -1138,6 +1138,722 @@ function renderTeamPage() {
 </html>`;
 }
 
+// ======================================================
+// AI REVIEW PAGE — Full working implementation
+// ======================================================
+function renderProjectReviewPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>REV AI — AI Website Review</title>
+  <style>${sharedStyles}
+    .rev-card { background: #fff; border: 1px solid #000; padding: 1.5rem; }
+    .label { font-size: 0.65rem; font-family: monospace; font-weight: 900; text-transform: uppercase; color: #555; margin-bottom: 0.3rem; }
+    input[type=url], textarea { width: 100%; padding: 0.75rem; border: 1px solid #000; font-size: 0.85rem; font-family: monospace; background: #F1F2F3; outline: none; }
+    input[type=url]:focus, textarea:focus { background: #fff; }
+    .tag { display: inline-block; font-size: 0.6rem; font-weight: 900; font-family: monospace; text-transform: uppercase; padding: 0.15rem 0.45rem; }
+    .tag-green { background: #12B76A; color: #fff; }
+    .tag-black { background: #000; color: #fff; }
+    .tag-red   { background: #dc2626; color: #fff; }
+    .tag-yellow{ background: #F4B62A; color: #000; }
+    .score-ring { font-size: 2.5rem; font-weight: 900; }
+    .stage { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid #ccc; font-family: monospace; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.5rem; opacity: 0.35; transition: all 0.3s; }
+    .stage.active { border-color: #12B76A; background: #f0fdf4; opacity: 1; font-weight: 900; }
+    .stage.done   { border-color: #000; background: #000; color: #fff; opacity: 1; }
+    .bullet-list { list-style: none; padding: 0; margin: 0; }
+    .bullet-list li { padding: 0.3rem 0; font-size: 0.8rem; border-bottom: 1px solid #eee; display: flex; gap: 0.5rem; }
+    .bullet-list li::before { content: "•"; font-weight: 900; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    @media (max-width: 768px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .score-bar-wrap { background: #e5e7eb; height: 8px; border: 1px solid #000; }
+    .score-bar { background: #12B76A; height: 100%; transition: width 1s ease; }
+    .action-row { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.75rem; border: 1px solid #000; margin-bottom: 0.5rem; background: #F1F2F3; }
+  </style>
+</head>
+<body>
+  ${renderNavbar()}
+  <div style="max-width:1400px;margin:0 auto;padding:1.5rem;display:flex;gap:1.5rem;align-items:flex-start;">
+    ${renderSidebar('/dashboard/project-review')}
+    <main style="flex:1;display:flex;flex-direction:column;gap:1.5rem;">
+
+      <!-- HEADER -->
+      <div class="rev-card" style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:0.65rem;font-family:monospace;color:#123B2D;text-transform:uppercase;font-weight:900;">// OLLAMA QWEN WEBSITE INTELLIGENCE</div>
+          <h1 style="font-size:2rem;font-weight:900;text-transform:uppercase;margin:0.25rem 0 0;">AI WEBSITE REVIEW</h1>
+          <p style="font-size:0.75rem;font-family:monospace;color:#666;margin:0.25rem 0 0;">PASTE ANY URL &bull; REAL WEBSITE SCRAPE &bull; QWEN STRUCTURED ANALYSIS &bull; SUPABASE SAVED</p>
+        </div>
+        <button onclick="resetForm()" class="pill-btn" style="font-size:0.75rem;">+ NEW REVIEW</button>
+      </div>
+
+      <!-- INPUT FORM -->
+      <div id="formSection" class="rev-card">
+        <div class="label">WEBSITE URL TO ANALYZE *</div>
+        <div style="display:flex;gap:0.75rem;align-items:flex-end;">
+          <div style="flex:1;">
+            <input type="url" id="websiteUrlInput" placeholder="https://example.com" style="font-size:1rem;padding:1rem;" />
+            <div style="font-size:0.65rem;font-family:monospace;color:#888;margin-top:0.3rem;">
+              🔒 SSRF-SAFE: Server fetches and analyzes the page. Private IPs and localhost are blocked.
+            </div>
+          </div>
+          <button onclick="runAiReview()" class="pill-btn" style="padding:1rem 2rem;font-size:0.85rem;white-space:nowrap;height:fit-content;" id="runBtn">
+            🤖 RUN AI REVIEW
+          </button>
+        </div>
+        <div id="inputError" style="display:none;margin-top:0.75rem;padding:0.75rem;background:#fef2f2;border:1px solid #dc2626;font-family:monospace;font-size:0.8rem;font-weight:700;color:#dc2626;"></div>
+      </div>
+
+      <!-- LOADING STAGES -->
+      <div id="loadingSection" style="display:none;" class="rev-card">
+        <div style="font-weight:900;font-size:1rem;text-transform:uppercase;margin-bottom:1rem;">⚙️ ANALYZING WEBSITE...</div>
+        <div id="stage1" class="stage"><span>🌐</span> 1. VALIDATING URL &amp; SSRF CHECK</div>
+        <div id="stage2" class="stage"><span>📄</span> 2. FETCHING WEBSITE CONTENT</div>
+        <div id="stage3" class="stage"><span>🧠</span> 3. RUNNING QWEN AI ANALYSIS</div>
+        <div id="stage4" class="stage"><span>✅</span> 4. VALIDATING AI JSON RESPONSE</div>
+        <div id="stage5" class="stage"><span>💾</span> 5. SAVING TO SUPABASE</div>
+      </div>
+
+      <!-- ERROR DISPLAY -->
+      <div id="errorSection" style="display:none;" class="rev-card">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+          <span style="font-size:1.5rem;">❌</span>
+          <span style="font-weight:900;font-size:1rem;text-transform:uppercase;">REVIEW FAILED</span>
+        </div>
+        <div id="errorMsg" style="font-family:monospace;font-size:0.85rem;background:#fef2f2;border:1px solid #dc2626;padding:1rem;color:#7f1d1d;"></div>
+        <button onclick="resetForm()" class="pill-btn-sec" style="margin-top:1rem;font-size:0.75rem;">← TRY AGAIN</button>
+      </div>
+
+      <!-- RESULT SECTION -->
+      <div id="resultSection" style="display:none;">
+
+        <!-- SCORE HEADER -->
+        <div class="rev-card" style="display:flex;gap:2rem;align-items:center;border-bottom:none;">
+          <div style="min-width:130px;background:#000;color:#fff;padding:1.5rem;text-align:center;">
+            <div style="font-family:monospace;font-size:0.6rem;font-weight:900;color:#12B76A;text-transform:uppercase;">OVERALL SCORE</div>
+            <div class="score-ring" id="res_score">--</div>
+            <div style="font-size:0.65rem;color:#aaa;">/&nbsp;100</div>
+          </div>
+          <div style="flex:1;">
+            <div id="res_url" style="font-family:monospace;font-size:0.8rem;font-weight:700;color:#12B76A;margin-bottom:0.5rem;"></div>
+            <h2 id="res_title" style="font-size:1.5rem;font-weight:900;text-transform:uppercase;margin:0 0 0.3rem;"></h2>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+              <span class="tag tag-black" id="res_biztype"></span>
+              <span class="tag tag-green" id="res_audience"></span>
+            </div>
+            <p id="res_valueprop" style="font-size:0.8rem;color:#444;font-style:italic;margin:0;"></p>
+          </div>
+          <button onclick="resetForm()" class="pill-btn-sec" style="font-size:0.75rem;white-space:nowrap;">+ NEW REVIEW</button>
+        </div>
+
+        <!-- SUMMARY -->
+        <div class="rev-card" style="margin-top:1rem;">
+          <div class="label">📋 WEBSITE SUMMARY</div>
+          <p id="res_summary" style="font-size:0.85rem;line-height:1.6;margin:0.5rem 0 0;"></p>
+        </div>
+
+        <!-- STRENGTHS / WEAKNESSES -->
+        <div class="grid2" style="margin-top:1rem;">
+          <div class="rev-card">
+            <div class="label" style="color:#12B76A;">✅ STRENGTHS</div>
+            <ul id="res_strengths" class="bullet-list"></ul>
+          </div>
+          <div class="rev-card">
+            <div class="label" style="color:#dc2626;">⚠️ WEAKNESSES / GAPS</div>
+            <ul id="res_weaknesses" class="bullet-list"></ul>
+          </div>
+        </div>
+
+        <!-- SCORE BARS -->
+        <div class="rev-card" style="margin-top:1rem;">
+          <div class="label">📊 AUDIT CATEGORY SCORES</div>
+          <div class="grid2" style="margin-top:1rem;gap:1.5rem;">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>CONVERSION</span><span id="bar_conv_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0 1rem;"><div class="score-bar" id="bar_conv" style="width:0%"></div></div>
+
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>SALES READINESS</span><span id="bar_sales_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0 1rem;"><div class="score-bar" id="bar_sales" style="width:0%"></div></div>
+
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>LEAD GENERATION</span><span id="bar_lead_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0;"><div class="score-bar" id="bar_lead" style="width:0%"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>TRUST &amp; CREDIBILITY</span><span id="bar_trust_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0 1rem;"><div class="score-bar" id="bar_trust" style="width:0%"></div></div>
+
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>UX ANALYSIS</span><span id="bar_ux_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0 1rem;"><div class="score-bar" id="bar_ux" style="width:0%"></div></div>
+
+              <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:0.7rem;font-weight:700;"><span>SEO OBSERVATIONS</span><span id="bar_seo_val">—</span></div>
+              <div class="score-bar-wrap" style="margin:0.3rem 0;"><div class="score-bar" id="bar_seo" style="width:0%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OPPORTUNITIES / RISKS -->
+        <div class="grid2" style="margin-top:1rem;">
+          <div class="rev-card">
+            <div class="label" style="color:#20C8E8;">🚀 OPPORTUNITIES</div>
+            <ul id="res_opportunities" class="bullet-list"></ul>
+          </div>
+          <div class="rev-card">
+            <div class="label" style="color:#F4B62A;">⚡ RISKS</div>
+            <ul id="res_risks" class="bullet-list"></ul>
+          </div>
+        </div>
+
+        <!-- RECOMMENDED ACTIONS -->
+        <div class="rev-card" style="margin-top:1rem;">
+          <div class="label">🎯 RECOMMENDED ACTIONS (AI-GENERATED)</div>
+          <div id="res_actions" style="margin-top:0.75rem;"></div>
+        </div>
+
+      </div>
+
+      <!-- HISTORY TABLE -->
+      <div class="rev-card" id="historySection">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #000;padding-bottom:0.75rem;margin-bottom:1rem;">
+          <span style="font-weight:900;font-size:0.85rem;text-transform:uppercase;">RECENT WEBSITE REVIEWS</span>
+          <span style="font-family:monospace;font-size:0.65rem;color:#888;">REAL SUPABASE HISTORY</span>
+        </div>
+        <div id="historyBody"><div style="text-align:center;padding:2rem;color:#aaa;font-family:monospace;">Loading reviews...</div></div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+  // ====================================================
+  // STATE
+  // ====================================================
+  let currentReview = null;
+
+  // ====================================================
+  // SHOW/HIDE HELPERS
+  // ====================================================
+  function show(id) { document.getElementById(id).style.display = 'block'; }
+  function hide(id) { document.getElementById(id).style.display = 'none'; }
+  function text(id, val) { document.getElementById(id).textContent = val; }
+  function html(id, val) { document.getElementById(id).innerHTML = val; }
+
+  function setStage(n) {
+    for (let i = 1; i <= 5; i++) {
+      const el = document.getElementById('stage' + i);
+      el.className = 'stage' + (i < n ? ' done' : i === n ? ' active' : '');
+    }
+  }
+
+  function resetForm() {
+    hide('loadingSection');
+    hide('errorSection');
+    hide('resultSection');
+    show('formSection');
+    document.getElementById('inputError').style.display = 'none';
+    document.getElementById('websiteUrlInput').value = '';
+    document.getElementById('runBtn').disabled = false;
+    currentReview = null;
+    loadHistory();
+  }
+
+  // ====================================================
+  // VALIDATE URL CLIENT-SIDE (basic guard)
+  // ====================================================
+  function isValidPublicUrl(raw) {
+    const s = raw.trim();
+    if (!s) return { ok: false, msg: 'Website URL is required.' };
+    let full = s;
+    if (!full.startsWith('http://') && !full.startsWith('https://')) full = 'https://' + full;
+    let parsed;
+    try { parsed = new URL(full); } catch { return { ok: false, msg: 'Invalid URL format.' }; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { ok: false, msg: 'Only HTTP and HTTPS are supported.' };
+    const h = parsed.hostname.toLowerCase();
+    const blocked = ['localhost','127.0.0.1','0.0.0.0','::1'];
+    if (blocked.includes(h) || h.endsWith('.local') || h.endsWith('.internal') || /^10\./.test(h) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(h) || /^192\.168\./.test(h)) {
+      return { ok: false, msg: 'Private and internal network addresses are blocked.' };
+    }
+    return { ok: true, url: full };
+  }
+
+  // ====================================================
+  // RENDER BULLET LIST
+  // ====================================================
+  function renderList(id, items) {
+    const ul = document.getElementById(id);
+    if (!items || items.length === 0) { ul.innerHTML = '<li>Not available from website</li>'; return; }
+    ul.innerHTML = items.map(i => '<li>' + escHtml(String(i)) + '</li>').join('');
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ====================================================
+  // RENDER SCORE BAR
+  // ====================================================
+  function renderBar(barId, valId, score) {
+    const s = Math.min(100, Math.max(0, Number(score) || 0));
+    setTimeout(() => {
+      document.getElementById(barId).style.width = s + '%';
+    }, 200);
+    document.getElementById(valId).textContent = s + '/100';
+  }
+
+  // ====================================================
+  // RENDER RECOMMENDED ACTIONS
+  // ====================================================
+  function renderActions(actions) {
+    const wrap = document.getElementById('res_actions');
+    if (!actions || actions.length === 0) {
+      wrap.innerHTML = '<div style="font-family:monospace;font-size:0.75rem;color:#888;">No actions returned.</div>';
+      return;
+    }
+    wrap.innerHTML = actions.map(a => {
+      const pri = (a.priority || 'MEDIUM').toUpperCase();
+      const cls = pri === 'HIGH' ? 'tag-red' : pri === 'LOW' ? 'tag-black' : 'tag-yellow';
+      return '<div class="action-row"><span class="tag ' + cls + '" style="white-space:nowrap;font-size:0.6rem;">' + escHtml(pri) + '</span><div><div style="font-weight:900;font-size:0.8rem;margin-bottom:0.2rem;">' + escHtml(a.action || '') + '</div><div style="font-size:0.75rem;color:#555;">' + escHtml(a.reason || '') + '</div></div></div>';
+    }).join('');
+  }
+
+  // ====================================================
+  // RENDER FULL RESULT
+  // ====================================================
+  function renderResult(review) {
+    const r = review.review_result || review;
+    text('res_score', r.overall_score || review.overall_score || '--');
+    text('res_url', review.website_url || '');
+    text('res_title', review.project_name || review.website_url || 'Website Review');
+    text('res_biztype', r.business_type || r.project_type || 'Business');
+    text('res_audience', r.target_audience || r.target_market || 'Audience');
+    text('res_valueprop', r.value_proposition || '');
+    text('res_summary', r.website_summary || r.summary || 'No summary returned.');
+
+    renderList('res_strengths', r.strengths);
+    renderList('res_weaknesses', r.weaknesses);
+    renderList('res_opportunities', r.opportunities);
+    renderList('res_risks', r.risks);
+    renderActions(r.recommended_actions);
+
+    // Score bars — support both flat and nested schemas
+    const convScore  = r.conversion_score  || (r.conversion_analysis  && r.conversion_analysis.score)  || 0;
+    const salesScore = r.sales_readiness_score || (r.sales_readiness && r.sales_readiness.score) || 0;
+    const leadScore  = r.lead_generation_score || (r.lead_generation  && r.lead_generation.score)  || 0;
+    const trustScore = r.trust_score || (r.trust_and_credibility && r.trust_and_credibility.score) || 0;
+    const uxScore    = r.ux_score    || (r.ux_analysis    && r.ux_analysis.score)    || 0;
+    const seoScore   = r.seo_score   || (r.seo_observations && r.seo_observations.score) || 0;
+
+    renderBar('bar_conv',  'bar_conv_val',  convScore);
+    renderBar('bar_sales', 'bar_sales_val', salesScore);
+    renderBar('bar_lead',  'bar_lead_val',  leadScore);
+    renderBar('bar_trust', 'bar_trust_val', trustScore);
+    renderBar('bar_ux',    'bar_ux_val',    uxScore);
+    renderBar('bar_seo',   'bar_seo_val',   seoScore);
+  }
+
+  // ====================================================
+  // MAIN: RUN AI REVIEW
+  // ====================================================
+  async function runAiReview() {
+    const raw = document.getElementById('websiteUrlInput').value;
+    const validation = isValidPublicUrl(raw);
+
+    if (!validation.ok) {
+      document.getElementById('inputError').textContent = validation.msg;
+      document.getElementById('inputError').style.display = 'block';
+      return;
+    }
+    document.getElementById('inputError').style.display = 'none';
+
+    // Lock UI & start loading
+    document.getElementById('runBtn').disabled = true;
+    hide('formSection');
+    hide('errorSection');
+    hide('resultSection');
+    show('loadingSection');
+
+    setStage(1);
+    await sleep(400);
+    setStage(2);
+
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ websiteUrl: validation.url })
+      });
+
+      setStage(3);
+      await sleep(600);
+      setStage(4);
+
+      const data = await res.json().catch(() => ({ success: false, error: 'Invalid JSON from server.' }));
+
+      if (!res.ok || !data.success) {
+        showError(data.error || 'AI review failed. Please try again.');
+        return;
+      }
+
+      setStage(5);
+      await sleep(400);
+
+      // Render result
+      hide('loadingSection');
+      show('resultSection');
+      renderResult(data.review);
+      loadHistory();
+
+    } catch (err) {
+      showError('Network error: ' + err.message);
+    } finally {
+      document.getElementById('runBtn').disabled = false;
+    }
+  }
+
+  function showError(msg) {
+    hide('loadingSection');
+    hide('formSection');
+    hide('resultSection');
+    document.getElementById('errorMsg').textContent = msg;
+    show('errorSection');
+    document.getElementById('runBtn').disabled = false;
+    loadHistory();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // ====================================================
+  // HISTORY TABLE
+  // ====================================================
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/ai-review');
+      const data = await res.json().catch(() => ({ success: false }));
+
+      const wrap = document.getElementById('historyBody');
+      if (!data.success || !data.reviews || data.reviews.length === 0) {
+        wrap.innerHTML = '<div style="text-align:center;padding:2rem;font-family:monospace;font-size:0.8rem;color:#aaa;font-weight:700;">NO REVIEWS YET</div>';
+        return;
+      }
+
+      wrap.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;"><thead><tr style="background:#F1F2F3;border-bottom:1px solid #000;font-family:monospace;font-weight:900;text-transform:uppercase;"><th style="padding:0.75rem;">Website / Project</th><th style="padding:0.75rem;">Score</th><th style="padding:0.75rem;">Date</th><th style="padding:0.75rem;text-align:right;">Action</th></tr></thead><tbody>' +
+        data.reviews.map(rev => {
+          const score = rev.overall_score || 0;
+          return '<tr style="border-bottom:1px solid #eee;"><td style="padding:0.75rem;"><div style="font-weight:900;text-transform:uppercase;">' + escHtml(rev.project_name || rev.website_url || '—') + '</div><div style="font-family:monospace;font-size:0.65rem;color:#888;">' + escHtml(rev.website_url || '') + '</div></td><td style="padding:0.75rem;"><span style="background:#000;color:#fff;padding:0.2rem 0.5rem;font-family:monospace;font-size:0.75rem;font-weight:900;">' + score + '/100</span></td><td style="padding:0.75rem;font-family:monospace;font-size:0.75rem;color:#666;">' + new Date(rev.created_at).toLocaleDateString() + '</td><td style="padding:0.75rem;text-align:right;"><button onclick="viewHistoryReview(\'' + rev.id + '\')" class="pill-btn-sec" style="font-size:0.65rem;padding:0.3rem 0.8rem;">VIEW</button></td></tr>';
+        }).join('') + '</tbody></table>';
+    } catch {
+      document.getElementById('historyBody').innerHTML = '<div style="padding:1rem;font-family:monospace;font-size:0.75rem;color:#888;">Could not load history.</div>';
+    }
+  }
+
+  // View a saved review
+  async function viewHistoryReview(id) {
+    try {
+      const res = await fetch('/api/project-review/' + id);
+      const data = await res.json().catch(() => ({ success: false }));
+      if (data.success && data.review) {
+        hide('formSection');
+        hide('errorSection');
+        hide('loadingSection');
+        show('resultSection');
+        renderResult(data.review);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // ====================================================
+  // ENTER KEY SUBMIT
+  // ====================================================
+  document.getElementById('websiteUrlInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') runAiReview();
+  });
+
+  // Initial load
+  loadHistory();
+</script>
+</body>
+</html>`;
+}
+
+// ======================================================
+// API PROXY — /api/ai-review (GET + POST)
+// ======================================================
+async function handleAiReviewApi(req, res) {
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001';
+
+  if (req.method === 'GET') {
+    // Try to proxy to Next.js API
+    try {
+      const resp = await fetch(baseUrl + '/api/ai-review', { headers: { 'cookie': req.headers.cookie || '' } });
+      const text = await resp.text();
+      res.writeHead(resp.status, { 'Content-Type': 'application/json' });
+      res.end(text);
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, reviews: [] }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body);
+        const { websiteUrl } = parsed;
+
+        if (!websiteUrl) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Website URL is required.' }));
+          return;
+        }
+
+        // Validate URL
+        let cleanUrl = websiteUrl.trim();
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) cleanUrl = 'https://' + cleanUrl;
+
+        let parsedUrl;
+        try { parsedUrl = new URL(cleanUrl); } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Invalid URL format.' }));
+          return;
+        }
+
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Only HTTP and HTTPS are supported.' }));
+          return;
+        }
+
+        const hostname = parsedUrl.hostname.toLowerCase();
+        const blocked = ['localhost','127.0.0.1','0.0.0.0','::1'];
+        const isPrivate = blocked.includes(hostname) || hostname.endsWith('.local') || hostname.endsWith('.internal') ||
+          /^10\./.test(hostname) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname) || /^192\.168\./.test(hostname);
+
+        if (isPrivate) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Private and internal network addresses are blocked for security.' }));
+          return;
+        }
+
+        // Fetch website
+        let websiteTitle = '';
+        let websiteDesc = '';
+        let headings = [];
+        let bodyText = '';
+
+        const fetchController = new AbortController();
+        const fetchTimeout = setTimeout(() => fetchController.abort(), 10000);
+
+        try {
+          const siteResp = await fetch(cleanUrl, {
+            signal: fetchController.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RevAI-WebsiteAnalyzer/1.0',
+              'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+            },
+            redirect: 'follow'
+          });
+          clearTimeout(fetchTimeout);
+
+          if (!siteResp.ok) {
+            res.writeHead(422, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Website server returned status ' + siteResp.status + '. Cannot analyze.' }));
+            return;
+          }
+
+          const siteHtml = await siteResp.text();
+
+          // Extract title
+          const titleM = siteHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          websiteTitle = titleM ? titleM[1].replace(/\s+/g, ' ').trim() : parsedUrl.hostname;
+
+          // Extract meta description
+          const metaM = siteHtml.match(/<meta[^>]*name=["\']description["\'][^>]*content=["\']([\s\S]*?)["\'][^>]*>/i) ||
+                        siteHtml.match(/<meta[^>]*content=["\']([\s\S]*?)["\'][^>]*name=["\']description["\'][^>]*>/i);
+          websiteDesc = metaM ? metaM[1].replace(/\s+/g, ' ').trim() : '';
+
+          // Extract H1/H2 headings
+          const hRegex = /<h[12][^>]*>([\s\S]*?)<\/h[12]>/gi;
+          let hMatch;
+          while ((hMatch = hRegex.exec(siteHtml)) !== null && headings.length < 8) {
+            const cleanH = hMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            if (cleanH.length > 3) headings.push(cleanH);
+          }
+
+          // Strip HTML to visible text
+          bodyText = siteHtml
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 4500);
+
+          if (bodyText.length < 30) {
+            res.writeHead(422, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Insufficient text content found on website to perform AI analysis.' }));
+            return;
+          }
+
+        } catch (fetchErr) {
+          clearTimeout(fetchTimeout);
+          const msg = (fetchErr && fetchErr.name === 'AbortError') ? 'Website request timed out (10s limit).' : 'Website could not be reached: ' + (fetchErr && fetchErr.message || 'Unknown error');
+          res.writeHead(422, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: msg }));
+          return;
+        }
+
+        // Ollama / Qwen AI analysis
+        const ollamaBase = (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+        const ollamaModel = process.env.OLLAMA_MODEL || 'qwen2.5';
+
+        // Verify Ollama reachable
+        try {
+          const pingRes = await fetch(ollamaBase + '/api/tags', { headers: { Accept: 'application/json' } });
+          if (!pingRes.ok) throw new Error('Ollama returned ' + pingRes.status);
+        } catch (pingErr) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Ollama is unavailable. Please start Ollama and verify the configured Qwen model is running.' }));
+          return;
+        }
+
+        const systemPrompt = `You are Rev AI's Website Intelligence Analyst. Analyze the real website content below based ONLY on supplied evidence. Do NOT invent information not present in the content. If a field cannot be determined, return "Not available from website".
+
+You MUST reply ONLY with a valid JSON object exactly matching this schema (NO markdown, NO text outside JSON):
+{
+  "overall_score": 0,
+  "summary": "",
+  "business_type": "",
+  "target_audience": "",
+  "value_proposition": "",
+  "strengths": [],
+  "weaknesses": [],
+  "conversion_score": 0,
+  "seo_score": 0,
+  "ux_score": 0,
+  "sales_readiness_score": 0,
+  "lead_generation_score": 0,
+  "opportunities": [],
+  "risks": [],
+  "recommended_actions": [
+    { "priority": "HIGH", "action": "", "reason": "" }
+  ]
+}
+
+Scores: integers 0-100 based on evidence only. Recommended actions must be specific to this exact website.`;
+
+        const userPrompt = `WEBSITE URL: ${cleanUrl}
+PAGE TITLE: ${websiteTitle}
+META DESCRIPTION: ${websiteDesc || 'Not specified'}
+H1/H2 HEADINGS: ${headings.join(' | ') || 'None'}
+
+EXTRACTED VISIBLE TEXT:
+${bodyText}`;
+
+        let aiResponse;
+        try {
+          const aiController = new AbortController();
+          const aiTimeout = setTimeout(() => aiController.abort(), 90000);
+
+          const aiRes = await fetch(ollamaBase + '/api/generate', {
+            method: 'POST',
+            signal: aiController.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: ollamaModel,
+              prompt: systemPrompt + '\n\n' + userPrompt,
+              stream: false,
+              format: 'json'
+            })
+          });
+          clearTimeout(aiTimeout);
+
+          if (!aiRes.ok) throw new Error('Ollama API error: ' + aiRes.status);
+          const aiData = await aiRes.json();
+          const rawText = aiData.response || '{}';
+
+          // Parse & validate JSON
+          let parsed;
+          try {
+            parsed = JSON.parse(rawText);
+          } catch {
+            const m = rawText.match(/\{[\s\S]*\}/);
+            if (m) {
+              try { parsed = JSON.parse(m[0]); } catch { parsed = null; }
+            }
+          }
+
+          if (!parsed || typeof parsed !== 'object') {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'AI model returned an invalid response. Please try again.' }));
+            return;
+          }
+
+          // Validate & bound scores
+          const boundScore = (v, def) => { const n = Number(v); return isNaN(n) ? def : Math.min(100, Math.max(0, Math.round(n))); };
+          const toArray   = (v)       => Array.isArray(v) ? v.filter(i => typeof i === 'string') : [];
+          const toStr     = (v, def)  => (typeof v === 'string' && v.trim()) ? v.trim() : def;
+
+          aiResponse = {
+            overall_score:          boundScore(parsed.overall_score, 70),
+            summary:                toStr(parsed.summary, 'Analysis generated from real website content.'),
+            business_type:          toStr(parsed.business_type, 'Online Business'),
+            target_audience:        toStr(parsed.target_audience, 'Not available from website'),
+            value_proposition:      toStr(parsed.value_proposition, 'Not available from website'),
+            strengths:              toArray(parsed.strengths),
+            weaknesses:             toArray(parsed.weaknesses),
+            conversion_score:       boundScore(parsed.conversion_score, 0),
+            seo_score:              boundScore(parsed.seo_score, 0),
+            ux_score:               boundScore(parsed.ux_score, 0),
+            sales_readiness_score:  boundScore(parsed.sales_readiness_score, 0),
+            lead_generation_score:  boundScore(parsed.lead_generation_score, 0),
+            opportunities:          toArray(parsed.opportunities),
+            risks:                  toArray(parsed.risks),
+            recommended_actions:    Array.isArray(parsed.recommended_actions)
+              ? parsed.recommended_actions
+                  .filter(a => a && typeof a.action === 'string')
+                  .map(a => ({ priority: ['HIGH','MEDIUM','LOW'].includes((a.priority||'').toUpperCase()) ? a.priority.toUpperCase() : 'MEDIUM', action: a.action.trim(), reason: (a.reason || '').trim() }))
+              : []
+          };
+
+        } catch (aiErr) {
+          const msg = (aiErr && aiErr.name === 'AbortError') ? 'Qwen AI analysis timed out. The model may be busy — please try again.' : 'AI analysis error: ' + (aiErr && aiErr.message || 'Unknown');
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: msg }));
+          return;
+        }
+
+        // Build review record (no Supabase needed for server.js mode — return direct result)
+        const reviewRecord = {
+          id: 'review_' + Date.now(),
+          project_name: websiteTitle || parsedUrl.hostname,
+          website_url: cleanUrl,
+          project_description: websiteDesc || bodyText.slice(0, 200),
+          target_audience: aiResponse.target_audience,
+          product_service: aiResponse.business_type,
+          overall_score: aiResponse.overall_score,
+          review_result: aiResponse,
+          created_at: new Date().toISOString()
+        };
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, reviewId: reviewRecord.id, websiteUrl: cleanUrl, review: reviewRecord }));
+
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message || 'Unexpected server error.' }));
+      }
+    });
+    return;
+  }
+
+  res.writeHead(405, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+}
+
 // HTTP SERVER REQUEST ROUTER
 const server = http.createServer((req, res) => {
   const reqUrl = url.parse(req.url, true);
@@ -1167,6 +1883,11 @@ const server = http.createServer((req, res) => {
     res.end(renderKnowledgePage());
   } else if (pathname.startsWith('/dashboard/team')) {
     res.end(renderTeamPage());
+  } else if (pathname.startsWith('/dashboard/project-review') || pathname.startsWith('/dashboard/ai-review')) {
+    res.end(renderProjectReviewPage());
+  } else if (pathname === '/api/ai-review') {
+    handleAiReviewApi(req, res);
+    return;
   } else {
     res.end(renderDashboardPage());
   }
