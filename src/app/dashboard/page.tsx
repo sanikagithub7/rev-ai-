@@ -37,6 +37,7 @@ export default async function DashboardPage() {
   let hotLeadsCount = 0;
   let scheduledMeetingsCount = 0;
   let dealsConvertedCount = 0;
+  let projectReviewsCount = 0;
 
   try {
     const { count: leadCount } = await supabase
@@ -65,6 +66,12 @@ export default async function DashboardPage() {
       .eq("organization_id", currentOrg.id)
       .or("status.eq.CONVERTED,status.eq.WON");
     if (convertedCount !== null) dealsConvertedCount = convertedCount;
+
+    const { count: reviewCount } = await supabase
+      .from("project_reviews")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", currentOrg.id);
+    if (reviewCount !== null) projectReviewsCount = reviewCount;
   } catch {
     // Fallback to 0 on database query failure
   }
@@ -160,6 +167,20 @@ export default async function DashboardPage() {
               </span>
               <span className="bg-black text-white px-1.5 text-[9px] font-bold">
                 {scheduledMeetingsCount}
+              </span>
+            </Link>
+
+            {/* Project Review */}
+            <Link
+              href="/dashboard/project-review"
+              className="flex items-center justify-between p-2 text-neutral-700 hover:bg-neutral-100 sharp-border transition-colors font-bold"
+            >
+              <span className="flex items-center gap-2">
+                <TrendingUp className="w-3.5 h-3.5 text-[#12B76A]" />
+                PROJECT REVIEW
+              </span>
+              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
+                {projectReviewsCount > 0 ? projectReviewsCount : "NEW"}
               </span>
             </Link>
 

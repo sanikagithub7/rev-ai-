@@ -129,6 +129,11 @@ function renderSidebar(activePath = "/dashboard") {
           <span style="background: #12B76A; color: #fff; padding: 0.1rem 0.3rem; font-size: 0.55rem;">ACTIVE</span>
         </a>
 
+        <a href="/dashboard/project-review" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; ${activePath.startsWith('/dashboard/project-review') ? 'background: #E8E9EA; border: 1px solid #000; font-weight: 900; color: #000;' : 'color: #333;'}">
+          <span>✨ PROJECT REVIEW</span>
+          <span style="background: #12B76A; color: #fff; padding: 0.1rem 0.3rem; font-size: 0.55rem; font-weight: 900;">NEW</span>
+        </a>
+
         <a href="/dashboard/analytics" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; ${isAna ? 'background: #E8E9EA; border: 1px solid #000; font-weight: 900; color: #000;' : 'color: #333;'}">
           <span>📊 ANALYTICS</span>
           <span style="background: #12B76A; color: #fff; padding: 0.1rem 0.3rem; font-size: 0.55rem;">ACTIVE</span>

@@ -437,3 +437,4 @@ CREATE POLICY "Members can access follow_ups" ON public.follow_ups FOR ALL USING
 CREATE POLICY "Members can access lead_events" ON public.lead_events FOR ALL USING (public.is_org_member(organization_id));
 CREATE POLICY "Members can access ai_runs" ON public.ai_runs FOR ALL USING (public.is_org_member(organization_id));
 CREATE POLICY "Members can access automation_runs" ON public.automation_runs FOR ALL USING (public.is_org_member(organization_id));
+CREATE POLICY "Members can access project_reviews" ON public.project_reviews FOR ALL USING (public.is_org_member(organization_id));
