@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
+import { checkSystemHealth } from "@/lib/services/health";
 import {
   LayoutDashboard,
   Zap,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Bot,
+  AlertTriangle,
 } from "lucide-react";
 
 export default async function DashboardPage() {
@@ -47,7 +49,7 @@ export default async function DashboardPage() {
       .from("leads")
       .select("*", { count: "exact", head: true })
       .eq("organization_id", currentOrg.id)
-      .gte("score", 80);
+      .or("heat_level.eq.HOT,score.gte.80");
     if (hotCount !== null) hotLeadsCount = hotCount;
 
     const { count: meetingsCount } = await supabase
@@ -61,11 +63,14 @@ export default async function DashboardPage() {
       .from("leads")
       .select("*", { count: "exact", head: true })
       .eq("organization_id", currentOrg.id)
-      .eq("status", "CONVERTED");
+      .or("status.eq.CONVERTED,status.eq.WON");
     if (convertedCount !== null) dealsConvertedCount = convertedCount;
   } catch {
     // Fallback to 0 on database query failure
   }
+
+  // Real backend system health verification
+  const systemHealth = await checkSystemHealth(supabase, currentOrg.id);
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -98,7 +103,7 @@ export default async function DashboardPage() {
                 WORKFLOWS
               </span>
               <span className="bg-[#12B76A] text-white px-1 py-0.2 text-[9px] font-bold">
-                ACTIVE
+                {systemHealth.workflowEngine.status}
               </span>
             </Link>
 
@@ -111,8 +116,8 @@ export default async function DashboardPage() {
                 <Bot className="w-3.5 h-3.5 text-[#12B76A]" />
                 AI AGENT
               </span>
-              <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
-                AUTOPILOT
+              <span className={`px-1 text-[9px] font-bold ${systemHealth.aiIntelligence.status === "ACTIVE" ? "bg-[#12B76A] text-white" : "bg-neutral-200 text-black"}`}>
+                {systemHealth.aiIntelligence.status}
               </span>
             </Link>
 
@@ -140,7 +145,7 @@ export default async function DashboardPage() {
                 CONVERSATIONS
               </span>
               <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
-                ACTIVE
+                LIVE
               </span>
             </Link>
 
@@ -168,7 +173,7 @@ export default async function DashboardPage() {
                 ANALYTICS
               </span>
               <span className="bg-[#12B76A] text-white px-1 text-[9px] font-bold">
-                REAL-TIME
+                LIVE
               </span>
             </Link>
           </div>
@@ -243,7 +248,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* METRIC CARDS (ROW OF 4) */}
+        {/* METRIC CARDS (ROW OF 4) — CALCULATED FROM REAL SUPABASE QUERIES */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card 1: TOTAL LEADS */}
           <div className="bg-white p-4 sharp-border space-y-3">
@@ -273,7 +278,7 @@ export default async function DashboardPage() {
               {hotLeadsCount}
             </div>
             <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
-              SCORE THRESHOLD &ge; 80
+              SCORE &ge; 80 OR HEAT: HOT
             </div>
           </div>
 
@@ -305,12 +310,12 @@ export default async function DashboardPage() {
               {dealsConvertedCount}
             </div>
             <div className="text-[9px] font-mono text-neutral-400 uppercase tracking-wider">
-              STATUS: CONVERTED
+              STATUS: CONVERTED / WON
             </div>
           </div>
         </div>
 
-        {/* SYSTEM AUTOMATION STATUS SECTION */}
+        {/* SYSTEM AUTOMATION STATUS SECTION — DYNAMIC REAL BACKEND HEALTH */}
         <div className="bg-white sharp-border p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black pb-4">
             <div>
@@ -322,82 +327,127 @@ export default async function DashboardPage() {
               </p>
             </div>
 
-            <div className="inline-flex items-center gap-1.5 bg-[#12B76A] text-white px-3 py-1 text-xs font-bold uppercase tracking-wider sharp-border self-start sm:self-auto">
-              <ShieldCheck className="w-3.5 h-3.5" /> ENGINE READY
+            <div
+              className={`inline-flex items-center gap-1.5 text-white px-3 py-1 text-xs font-bold uppercase tracking-wider sharp-border self-start sm:self-auto ${
+                systemHealth.overallStatus === "ENGINE OPERATIONAL"
+                  ? "bg-[#12B76A]"
+                  : systemHealth.overallStatus === "PARTIALLY OPERATIONAL"
+                  ? "bg-[#F4B62A] text-black"
+                  : "bg-red-600"
+              }`}
+            >
+              {systemHealth.overallStatus === "ENGINE OPERATIONAL" ? (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              ) : (
+                <AlertTriangle className="w-3.5 h-3.5" />
+              )}
+              {systemHealth.overallStatus}
             </div>
           </div>
 
-          {/* 2 x 2 Grid of Automation Cards */}
+          {/* 2 x 2 Grid of Real Automation Status Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Card 1 */}
+            {/* Card 1: LEAD INGESTION API */}
             <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <CheckCircle2 className={`w-4 h-4 ${systemHealth.database.status === "ACTIVE" ? "text-[#12B76A]" : "text-red-600"}`} />
                   <span className="font-extrabold text-xs uppercase text-black">
                     LEAD INGESTION API
                   </span>
                 </div>
                 <div className="text-[10px] text-neutral-500 font-mono">
-                  Multi-tenant webhook capture endpoints
+                  {systemHealth.database.message}
                 </div>
               </div>
-              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
-                ACTIVE
+              <span
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border ${
+                  systemHealth.database.status === "ACTIVE"
+                    ? "bg-[#12B76A] text-white"
+                    : "bg-red-600 text-white"
+                }`}
+              >
+                {systemHealth.database.status}
               </span>
             </div>
 
-            {/* Card 2 */}
+            {/* Card 2: AI LEAD INTELLIGENCE (OLLAMA QWEN) */}
             <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  {systemHealth.aiIntelligence.status === "ACTIVE" ? (
+                    <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-[#F4B62A]" />
+                  )}
                   <span className="font-bold text-xs uppercase text-black">
                     AI LEAD INTELLIGENCE
                   </span>
                 </div>
                 <div className="text-[10px] text-neutral-500 font-mono">
-                  Lead scoring & intent extraction agent
+                  {systemHealth.aiIntelligence.message}
                 </div>
               </div>
-              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
-                ACTIVE
+              <span
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border ${
+                  systemHealth.aiIntelligence.status === "ACTIVE"
+                    ? "bg-[#12B76A] text-white"
+                    : "bg-[#F4B62A] text-black"
+                }`}
+              >
+                {systemHealth.aiIntelligence.status}
               </span>
             </div>
 
-            {/* Card 3 */}
+            {/* Card 3: AUTOMATED FOLLOW-UPS & WORKFLOWS */}
             <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  <CheckCircle2 className={`w-4 h-4 ${systemHealth.workflowEngine.status === "ACTIVE" ? "text-[#12B76A]" : "text-neutral-400"}`} />
                   <span className="font-bold text-xs uppercase text-black">
                     AUTOMATED FOLLOW-UPS
                   </span>
                 </div>
                 <div className="text-[10px] text-neutral-500 font-mono">
-                  Workflow event bus dispatcher & triggers
+                  {systemHealth.workflowEngine.message}
                 </div>
               </div>
-              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
-                ACTIVE
+              <span
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border ${
+                  systemHealth.workflowEngine.status === "ACTIVE"
+                    ? "bg-[#12B76A] text-white"
+                    : "bg-neutral-200 text-black"
+                }`}
+              >
+                {systemHealth.workflowEngine.status}
               </span>
             </div>
 
-            {/* Card 4 */}
+            {/* Card 4: CALENDAR & MEETINGS ENGINE (GOOGLE OAUTH) */}
             <div className="p-4 border border-black bg-white sharp-border flex items-center justify-between">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  {systemHealth.calendarEngine.status === "READY" ? (
+                    <CheckCircle2 className="w-4 h-4 text-[#12B76A]" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-[#F4B62A]" />
+                  )}
                   <span className="font-bold text-xs uppercase text-black">
                     CALENDAR & MEETINGS ENGINE
                   </span>
                 </div>
                 <div className="text-[10px] text-neutral-500 font-mono">
-                  Real Supabase booking & Google Meet links
+                  {systemHealth.calendarEngine.message}
                 </div>
               </div>
-              <span className="bg-[#12B76A] text-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border">
-                ACTIVE
+              <span
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider sharp-border ${
+                  systemHealth.calendarEngine.status === "READY"
+                    ? "bg-[#12B76A] text-white"
+                    : "bg-[#F4B62A] text-black"
+                }`}
+              >
+                {systemHealth.calendarEngine.status}
               </span>
             </div>
           </div>
