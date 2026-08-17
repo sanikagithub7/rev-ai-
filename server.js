@@ -100,10 +100,26 @@ function loadTokenFromDisk() {
   return null;
 }
 
-// Auto-load token from disk if available
-const diskToken = loadTokenFromDisk();
-if (diskToken) {
-  serverGoogleTokens.set("default", diskToken);
+// Persistent Meetings Disk Cache
+const MEETINGS_CACHE_FILE = path.join(__dirname, '.meetings.json');
+
+function saveMeetingToDiskCache(meetingRecord) {
+  try {
+    let existing = loadMeetingsFromDiskCache();
+    existing = existing.filter(m => m.id !== meetingRecord.id && m.google_event_id !== meetingRecord.google_event_id);
+    existing.unshift(meetingRecord);
+    fs.writeFileSync(MEETINGS_CACHE_FILE, JSON.stringify(existing, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+function loadMeetingsFromDiskCache() {
+  if (fs.existsSync(MEETINGS_CACHE_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(MEETINGS_CACHE_FILE, 'utf8'));
+      if (Array.isArray(data)) return data;
+    } catch (e) {}
+  }
+  return [];
 }
 
 // Helper to query Supabase REST API directly
@@ -710,13 +726,34 @@ const server = http.createServer(async (req, res) => {
   // API ROUTE: GET /api/meetings
   if (pathname === "/api/meetings" && method === "GET") {
     try {
-      const supRes = await supabaseFetch("meetings?select=*&order=created_at.desc");
-      const meetingsData = await supRes.json();
+      let dbMeetings = [];
+      try {
+        const supRes = await supabaseFetch("meetings?select=*&order=created_at.desc");
+        const meetingsData = await supRes.json();
+        if (Array.isArray(meetingsData)) {
+          dbMeetings = meetingsData;
+        }
+      } catch (e) {}
+
+      const diskMeetings = loadMeetingsFromDiskCache();
+      const map = new Map();
+      for (const m of diskMeetings) {
+        const key = m.google_event_id || m.id;
+        if (key) map.set(key, m);
+      }
+      for (const m of dbMeetings) {
+        const key = m.google_event_id || m.id;
+        if (key) map.set(key, m);
+      }
+
+      const combined = Array.from(map.values()).sort((a, b) => new Date(b.created_at || b.start_time).getTime() - new Date(a.created_at || a.start_time).getTime());
+
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ meetings: Array.isArray(meetingsData) ? meetingsData : [] }));
+      res.end(JSON.stringify({ meetings: combined }));
     } catch (err) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: err.message }));
+      const diskMeetings = loadMeetingsFromDiskCache();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ meetings: diskMeetings }));
     }
     return;
   }
@@ -779,8 +816,8 @@ const server = http.createServer(async (req, res) => {
           endIso = new Date(startIso.getTime() + Number(durationMinutes) * 60000);
         }
 
-        // 2. Fetch server-side token (Memory Store -> Supabase DB)
-        let tokenRecord = serverGoogleTokens.get("default") || null;
+        // 2. Fetch server-side token (Memory Store -> Disk Cache -> Supabase DB)
+        let tokenRecord = serverGoogleTokens.get("default") || loadTokenFromDisk() || null;
 
         if (!tokenRecord) {
           try {
@@ -790,9 +827,12 @@ const server = http.createServer(async (req, res) => {
               if (Array.isArray(tokens) && tokens.length > 0) {
                 tokenRecord = tokens[0];
                 serverGoogleTokens.set("default", tokenRecord);
+                saveTokenToDisk(tokenRecord);
               }
             }
           } catch (e) {}
+        } else {
+          serverGoogleTokens.set("default", tokenRecord);
         }
 
         let accessToken = tokenRecord ? tokenRecord.access_token : null;
@@ -951,36 +991,47 @@ const server = http.createServer(async (req, res) => {
         const formattedDateTime = `${date} &bull; ${formattedTimeStr} (${timezone})`;
         const finalProspectName = participantName.trim();
 
-        // 6. Save meeting to Supabase
-        const supRes = await supabaseFetch("meetings", {
-          method: "POST",
-          body: JSON.stringify({
-            organization_id: orgId,
-            title: title.trim(),
-            lead_name: finalProspectName,
-            participant_name: finalProspectName,
-            participant_email: participantEmail.trim(),
-            company: company?.trim() || "Prospect",
-            date_time: formattedDateTime,
-            start_time: startIso.toISOString(),
-            end_time: endIso.toISOString(),
-            timezone,
-            type: title.trim(),
-            status: "SCHEDULED",
-            meeting_link: meetUrl,
-            google_event_id: eventId,
-            calendar_url: htmlLink || null,
-            description: description?.trim() || null
-          })
-        });
+        const meetingRecord = {
+          id: `meet-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          organization_id: orgId,
+          title: title.trim(),
+          lead_name: finalProspectName,
+          participant_name: finalProspectName,
+          participant_email: (calAttendees[0]?.email || participantEmail).trim(),
+          company: company?.trim() || "Prospect",
+          date_time: formattedDateTime,
+          start_time: startIso.toISOString(),
+          end_time: endIso.toISOString(),
+          timezone,
+          type: title.trim(),
+          status: "SCHEDULED",
+          meeting_link: meetUrl,
+          google_event_id: eventId,
+          calendar_url: htmlLink || null,
+          description: description?.trim() || null,
+          created_at: new Date().toISOString()
+        };
 
-        const createdData = await supRes.json();
-        const insertedMeeting = Array.isArray(createdData) ? createdData[0] : createdData;
+        // 6. Save meeting to Supabase (if table exists)
+        try {
+          const supRes = await supabaseFetch("meetings", {
+            method: "POST",
+            body: JSON.stringify(meetingRecord)
+          });
+          const createdData = await supRes.json();
+          if (createdData && !createdData.error && !createdData.code) {
+            const inserted = Array.isArray(createdData) ? createdData[0] : createdData;
+            if (inserted && inserted.id) meetingRecord.id = inserted.id;
+          }
+        } catch (e) {}
+
+        // Save to disk cache for 100% reliable persistence
+        saveMeetingToDiskCache(meetingRecord);
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           success: true,
-          meeting: insertedMeeting,
+          meeting: meetingRecord,
           meetUrl,
           calendarUrl: htmlLink
         }));

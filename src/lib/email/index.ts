@@ -24,6 +24,7 @@ export interface MeetingEmailParams {
 export interface AttendeeDeliveryStatus {
   name: string;
   email: string;
+  role: "organizer" | "attendee";
   calendarStatus: "created" | "failed";
   emailStatus: "sent" | "failed" | "rejected";
   reason?: string;
@@ -107,7 +108,7 @@ export function generateHostEmailHtml(data: MeetingEmailParams): string {
                     <span style="font-size: 22px; font-weight: 900; letter-spacing: 1px; color: #ffffff;">REV <span style="color: #6366f1;">AI</span></span>
                   </td>
                   <td align="right">
-                    <span style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase;">Confirmed</span>
+                    <span style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase;">Organizer Confirmation</span>
                   </td>
                 </tr>
               </table>
@@ -117,7 +118,7 @@ export function generateHostEmailHtml(data: MeetingEmailParams): string {
           <!-- Main Content -->
           <tr>
             <td style="padding: 32px;">
-              <h1 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 800; color: #ffffff;">Meeting Scheduled</h1>
+              <h1 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 800; color: #ffffff;">Meeting Scheduled Successfully</h1>
               <p style="margin: 0 0 24px 0; font-size: 14px; color: #9ca3af;">Hi ${hostName}, your meeting has been successfully booked and added to your Google Calendar.</p>
 
               <div style="background-color: #1f2937; border-radius: 8px; border-left: 4px solid #6366f1; padding: 20px; margin-bottom: 24px;">
@@ -134,6 +135,10 @@ export function generateHostEmailHtml(data: MeetingEmailParams): string {
                   <tr>
                     <td style="color: #9ca3af; font-weight: 600;">TIMEZONE</td>
                     <td>${timezone}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #9ca3af; font-weight: 600;">ORGANIZER</td>
+                    <td style="font-weight: 700; color: #6366f1;">${hostName}</td>
                   </tr>
                 </table>
               </div>
@@ -153,11 +158,16 @@ export function generateHostEmailHtml(data: MeetingEmailParams): string {
               </div>
               ` : ''}
 
-              <!-- Action Button -->
+              <!-- Action Buttons -->
               <div style="text-align: center; margin: 32px 0 16px 0;">
-                <a href="${googleMeetUrl}" target="_blank" style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4);">
+                <a href="${googleMeetUrl}" target="_blank" style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 24px; border-radius: 8px; margin-right: 8px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4);">
                   📹 JOIN GOOGLE MEET →
                 </a>
+                ${calendarUrl ? `
+                <a href="${calendarUrl}" target="_blank" style="display: inline-block; background-color: #374151; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 20px; border-radius: 8px;">
+                  📅 OPEN GOOGLE CALENDAR
+                </a>
+                ` : ''}
               </div>
             </td>
           </tr>
@@ -174,7 +184,7 @@ export function generateHostEmailHtml(data: MeetingEmailParams): string {
  * Generates Participant Invitation HTML Email Template
  */
 export function generateParticipantEmailHtml(data: MeetingEmailParams): string {
-  const { meetingTitle, hostName, date, startTime, endTime, timezone, description, googleMeetUrl } = data;
+  const { meetingTitle, hostName, date, startTime, endTime, timezone, description, googleMeetUrl, calendarUrl } = data;
 
   return `
 <!DOCTYPE html>
@@ -215,17 +225,33 @@ export function generateParticipantEmailHtml(data: MeetingEmailParams): string {
                     <td style="font-weight: 700; color: #ffffff;">${startTime} – ${endTime}</td>
                   </tr>
                   <tr>
+                    <td style="color: #9ca3af; font-weight: 600;">TIMEZONE</td>
+                    <td>${timezone}</td>
+                  </tr>
+                  <tr>
                     <td style="color: #9ca3af; font-weight: 600;">ORGANIZER</td>
                     <td style="font-weight: 700; color: #10b981;">${hostName}</td>
                   </tr>
                 </table>
               </div>
 
-              <!-- Action Button -->
+              ${description ? `
+              <div style="margin-bottom: 24px;">
+                <h3 style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #9ca3af; text-transform: uppercase;">Agenda</h3>
+                <p style="margin: 0; font-size: 13px; color: #d1d5db; background-color: #111827; padding: 12px; border-radius: 6px; border: 1px solid #1f2937;">${description}</p>
+              </div>
+              ` : ''}
+
+              <!-- Action Buttons -->
               <div style="text-align: center; margin: 32px 0 16px 0;">
-                <a href="${googleMeetUrl}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.4);">
+                <a href="${googleMeetUrl}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 24px; border-radius: 8px; margin-right: 8px; box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.4);">
                   📹 JOIN GOOGLE MEET →
                 </a>
+                ${calendarUrl ? `
+                <a href="${calendarUrl}" target="_blank" style="display: inline-block; background-color: #374151; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 20px; border-radius: 8px;">
+                  📅 ADD TO CALENDAR
+                </a>
+                ` : ''}
               </div>
             </td>
           </tr>
@@ -242,51 +268,83 @@ export function generateParticipantEmailHtml(data: MeetingEmailParams): string {
  * Dispatches Email Notifications to Host and All Participants
  */
 export async function sendMeetingNotifications(data: MeetingEmailParams): Promise<EmailSendResult> {
-  const { hostEmail, participantName, participantEmail, participants = [], additionalAttendees = [] } = data;
-
-  // Build target recipient list
-  const recipientList: { name: string; email: string }[] = [];
-  const seenEmails = new Set<string>();
-
-  const hostEmailClean = hostEmail.trim().toLowerCase();
-
-  // Add primary participant
-  if (participantEmail) {
-    const clean = participantEmail.trim().toLowerCase();
-    if (clean && !seenEmails.has(clean)) {
-      seenEmails.add(clean);
-      recipientList.push({ name: participantName.trim() || "Participant", email: clean });
-    }
-  }
-
-  // Add structured participants
-  for (const p of participants) {
-    const clean = p.email.trim().toLowerCase();
-    if (clean && !seenEmails.has(clean)) {
-      seenEmails.add(clean);
-      recipientList.push({ name: p.name.trim() || "Participant", email: clean });
-    }
-  }
-
-  // Add additional string emails
-  for (const email of additionalAttendees) {
-    const clean = email.trim().toLowerCase();
-    if (clean && !seenEmails.has(clean)) {
-      seenEmails.add(clean);
-      recipientList.push({ name: "Participant", email: clean });
-    }
-  }
+  const { hostName, hostEmail, participantName, participantEmail, participants = [], additionalAttendees = [] } = data;
 
   const invitations: AttendeeDeliveryStatus[] = [];
   const resendApiKey = process.env.RESEND_API_KEY;
 
+  // 1. Dispatch Organizer / Host Confirmation Email
+  const cleanHostEmail = (hostEmail || "").trim().toLowerCase();
+  if (cleanHostEmail) {
+    const val = validateEmailAddress(cleanHostEmail);
+    if (val.valid) {
+      if (resendApiKey) {
+        const hostHtml = generateHostEmailHtml(data);
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: process.env.EMAIL_FROM || "REV AI Notifications <onboarding@resend.dev>",
+            to: [cleanHostEmail],
+            subject: `Meeting Scheduled — ${data.meetingTitle}`,
+            html: hostHtml,
+          }),
+        });
+
+        if (res.ok) {
+          invitations.push({ name: `${hostName} (Host)`, email: cleanHostEmail, role: "organizer", calendarStatus: "created", emailStatus: "sent" });
+        } else {
+          const errText = await res.text();
+          invitations.push({ name: `${hostName} (Host)`, email: cleanHostEmail, role: "organizer", calendarStatus: "created", emailStatus: "failed", reason: errText });
+        }
+      } else {
+        console.log(`[REV AI EMAIL ENGINE] Sent Host Confirmation Email to ${hostName} (${cleanHostEmail})`);
+        invitations.push({ name: `${hostName} (Host)`, email: cleanHostEmail, role: "organizer", calendarStatus: "created", emailStatus: "sent" });
+      }
+    }
+  }
+
+  // 2. Build target participant list (excluding host if duplicate)
+  const participantList: { name: string; email: string }[] = [];
+  const seenEmails = new Set<string>();
+  if (cleanHostEmail) seenEmails.add(cleanHostEmail);
+
+  if (participantEmail) {
+    const clean = participantEmail.trim().toLowerCase();
+    if (clean && !seenEmails.has(clean)) {
+      seenEmails.add(clean);
+      participantList.push({ name: participantName.trim() || "Participant", email: clean });
+    }
+  }
+
+  for (const p of participants) {
+    const clean = p.email.trim().toLowerCase();
+    if (clean && !seenEmails.has(clean)) {
+      seenEmails.add(clean);
+      participantList.push({ name: p.name.trim() || "Participant", email: clean });
+    }
+  }
+
+  for (const email of additionalAttendees) {
+    const clean = email.trim().toLowerCase();
+    if (clean && !seenEmails.has(clean)) {
+      seenEmails.add(clean);
+      participantList.push({ name: "Participant", email: clean });
+    }
+  }
+
+  // 3. Dispatch Participant Invitation Emails
   try {
-    for (const r of recipientList) {
+    for (const r of participantList) {
       const val = validateEmailAddress(r.email);
       if (!val.valid) {
         invitations.push({
           name: r.name,
           email: r.email,
+          role: "attendee",
           calendarStatus: "created",
           emailStatus: "rejected",
           reason: val.reason,
@@ -311,15 +369,14 @@ export async function sendMeetingNotifications(data: MeetingEmailParams): Promis
         });
 
         if (res.ok) {
-          invitations.push({ name: r.name, email: r.email, calendarStatus: "created", emailStatus: "sent" });
+          invitations.push({ name: r.name, email: r.email, role: "attendee", calendarStatus: "created", emailStatus: "sent" });
         } else {
           const errText = await res.text();
-          invitations.push({ name: r.name, email: r.email, calendarStatus: "created", emailStatus: "failed", reason: errText });
+          invitations.push({ name: r.name, email: r.email, role: "attendee", calendarStatus: "created", emailStatus: "failed", reason: errText });
         }
       } else {
-        // Log structured delivery confirmation
-        console.log(`[REV AI EMAIL ENGINE] Sent invitation to ${r.name} (${r.email})`);
-        invitations.push({ name: r.name, email: r.email, calendarStatus: "created", emailStatus: "sent" });
+        console.log(`[REV AI EMAIL ENGINE] Sent Participant Invitation Email to ${r.name} (${r.email})`);
+        invitations.push({ name: r.name, email: r.email, role: "attendee", calendarStatus: "created", emailStatus: "sent" });
       }
     }
 
@@ -333,13 +390,16 @@ export async function sendMeetingNotifications(data: MeetingEmailParams): Promis
     return {
       success: true,
       meetingCreated: true,
-      invitations: recipientList.map((r) => ({
-        name: r.name,
-        email: r.email,
-        calendarStatus: "created",
-        emailStatus: "failed",
-        reason: err.message,
-      })),
+      invitations: invitations.length > 0 ? invitations : [
+        {
+          name: hostName,
+          email: hostEmail,
+          role: "organizer",
+          calendarStatus: "created",
+          emailStatus: "failed",
+          reason: err.message,
+        },
+      ],
       warning: "Meeting scheduled on Google Calendar, but email dispatch failed.",
     };
   }
