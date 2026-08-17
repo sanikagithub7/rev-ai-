@@ -115,13 +115,8 @@ export default function MeetingsPage() {
     }
   }, [checkGoogleStatus, fetchMeetings]);
 
-  async function handleOpenScheduleModal() {
+  function handleOpenScheduleModal() {
     setError(null);
-    const isConn = await checkGoogleStatus();
-    if (!isConn) {
-      setError("Connect Google Calendar before scheduling a meeting.");
-      return;
-    }
     setShowModal(true);
   }
 

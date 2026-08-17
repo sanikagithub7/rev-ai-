@@ -1655,12 +1655,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
-        async function openScheduleModal() {
-          const isConn = await checkGoogleStatus();
-          if (!isConn) {
-            alert('Connect Google Calendar before scheduling a meeting.');
-            return;
-          }
+        function openScheduleModal() {
           document.getElementById('scheduleModal').style.display = 'flex';
         }
 
