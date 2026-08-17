@@ -4,7 +4,7 @@ import {
   createGoogleCalendarEventWithMeet,
   getGoogleCalendarConnection,
 } from "@/lib/google/calendar";
-import { sendMeetingNotifications } from "@/lib/email";
+import { sendMeetingNotifications, validateEmailAddress } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       title,
       participantName,
       participantEmail,
+      participants = [],
       additionalAttendees = [],
       date,
       startTime,
@@ -91,7 +92,6 @@ export async function POST(request: Request) {
       timezone = "Asia/Kolkata",
       description,
       company,
-      leadName,
     } = body || {};
 
     // 1. Backend Validations
@@ -99,12 +99,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, code: "INVALID_MEETING_DATA", error: "Meeting title is required." }, { status: 400 });
     }
 
-    if (!participantName || typeof participantName !== "string" || !participantName.trim()) {
-      return NextResponse.json({ success: false, code: "INVALID_MEETING_DATA", error: "Participant name is required." }, { status: 400 });
+    // Determine target attendees list
+    const attendeeList: Array<{ name: string; email: string }> = [];
+    const seenEmails = new Set<string>();
+
+    if (Array.isArray(participants) && participants.length > 0) {
+      for (const p of participants) {
+        if (p?.email && typeof p.email === "string") {
+          const val = validateEmailAddress(p.email);
+          if (!val.valid) {
+            return NextResponse.json({ success: false, code: "INVALID_ATTENDEE_EMAIL", error: val.reason }, { status: 400 });
+          }
+          if (!seenEmails.has(val.cleanEmail!)) {
+            seenEmails.add(val.cleanEmail!);
+            attendeeList.push({ name: p.name?.trim() || "Participant", email: val.cleanEmail! });
+          }
+        }
+      }
+    } else if (participantEmail) {
+      const val = validateEmailAddress(participantEmail);
+      if (!val.valid) {
+        return NextResponse.json({ success: false, code: "INVALID_ATTENDEE_EMAIL", error: val.reason }, { status: 400 });
+      }
+      seenEmails.add(val.cleanEmail!);
+      attendeeList.push({ name: participantName?.trim() || "Participant", email: val.cleanEmail! });
     }
 
-    if (!participantEmail || typeof participantEmail !== "string" || !participantEmail.includes("@") || !participantEmail.includes(".")) {
-      return NextResponse.json({ success: false, code: "INVALID_MEETING_DATA", error: "Please enter a valid participant email address." }, { status: 400 });
+    if (attendeeList.length === 0) {
+      return NextResponse.json({ success: false, code: "INVALID_MEETING_DATA", error: "At least one valid participant email address is required." }, { status: 400 });
     }
 
     if (!date || !startTime) {
@@ -147,14 +169,15 @@ export async function POST(request: Request) {
     }
 
     // 3. Call Google Calendar API to create Event + Google Meet Link
+    const primaryParticipant = attendeeList[0];
     const googleRes = await createGoogleCalendarEventWithMeet({
       title: title.trim(),
-      description: description?.trim() || `Sales Discovery Meeting with ${participantName.trim()} (${company || "Prospect"}).`,
+      description: description?.trim() || `Sales Discovery Meeting with ${primaryParticipant.name} (${company || "Prospect"}).`,
       startDateTime: startIso.toISOString(),
       endDateTime: endIso.toISOString(),
       timezone,
-      participantEmail: participantEmail.trim(),
-      participantName: participantName.trim(),
+      participantEmail: primaryParticipant.email,
+      participantName: primaryParticipant.name,
       accessToken: conn.accessToken,
     });
 
@@ -172,7 +195,7 @@ export async function POST(request: Request) {
 
     const formattedTimeStr = endTime ? `${startTime} - ${endTime}` : `${startTime} (${durationMinutes} min)`;
     const formattedDateTime = `${date} &bull; ${formattedTimeStr} (${timezone})`;
-    const finalProspectName = participantName.trim();
+    const finalProspectName = primaryParticipant.name;
 
     // 5. Persist actual meeting in Supabase
     const { data: insertedMeeting, error: insertErr } = await supabase
@@ -183,7 +206,7 @@ export async function POST(request: Request) {
         title: title.trim(),
         lead_name: finalProspectName,
         participant_name: finalProspectName,
-        participant_email: participantEmail.trim(),
+        participant_email: primaryParticipant.email,
         company: company?.trim() || "Prospect",
         date_time: formattedDateTime,
         start_time: startIso.toISOString(),
@@ -203,7 +226,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, code: "SUPABASE_PERSISTENCE_FAILED", error: insertErr.message }, { status: 500 });
     }
 
-    // 6. Send Email Notifications (Host + Participant + Attendees)
+    // 6. Send Email Notifications with granular per-attendee delivery status
     const hostEmail = user?.email || "sanika@revai.io";
     const hostName = user?.user_metadata?.full_name || "Sanika Wazarkar";
 
@@ -211,8 +234,9 @@ export async function POST(request: Request) {
       meetingTitle: title.trim(),
       hostName,
       hostEmail,
-      participantName: finalProspectName,
-      participantEmail: participantEmail.trim(),
+      participantName: primaryParticipant.name,
+      participantEmail: primaryParticipant.email,
+      participants: attendeeList,
       additionalAttendees: Array.isArray(additionalAttendees) ? additionalAttendees : [],
       date,
       startTime,
@@ -229,7 +253,7 @@ export async function POST(request: Request) {
       meeting: insertedMeeting,
       meetUrl: googleRes.meetUrl,
       calendarUrl: googleRes.htmlLink,
-      notifications: emailRes.notifications,
+      invitations: emailRes.invitations,
       warning: emailRes.warning || undefined,
     });
   } catch (err: any) {

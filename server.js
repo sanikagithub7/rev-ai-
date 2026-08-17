@@ -839,11 +839,39 @@ const server = http.createServer(async (req, res) => {
             } catch (e) {}
         }
 
-        // 4. Create Google Calendar Event with Meet Link
+        // 4. Validate Attendee Email Addresses Before Calendar Creation
         const { participants = [] } = body;
         const calAttendees = Array.isArray(participants) && participants.length > 0
           ? participants.map(p => ({ email: p.email.trim(), displayName: (p.name || p.email).trim() }))
           : [{ email: participantEmail.trim(), displayName: participantName.trim() }];
+
+        const RESERVED_DOMAINS = ["example.com", "example.org", "example.net", "test.com", "invalid", "localhost", "sample.com"];
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+        for (const p of calAttendees) {
+          const cleanEmail = (p.email || "").trim().toLowerCase();
+          const domain = cleanEmail.split("@")[1];
+
+          if (!emailRegex.test(cleanEmail)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: false,
+              code: "INVALID_ATTENDEE_EMAIL",
+              error: `Attendee email "${cleanEmail}" has invalid email syntax. Please enter a valid, deliverable email address.`
+            }));
+            return;
+          }
+
+          if (RESERVED_DOMAINS.includes(domain)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: false,
+              code: "INVALID_ATTENDEE_EMAIL",
+              error: `Attendee email "${cleanEmail}" uses a reserved example domain (${domain}) that cannot receive emails. Please enter a deliverable email address.`
+            }));
+            return;
+          }
+        }
 
         const eventPayload = {
           summary: title.trim(),
@@ -1795,13 +1823,31 @@ const server = http.createServer(async (req, res) => {
             const participants = [];
             const seenEmails = new Set();
 
+            const RESERVED = ['example.com', 'example.org', 'example.net', 'test.com', 'invalid', 'localhost', 'sample.com'];
+            const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
             for (let row of rows) {
               const nameEl = row.querySelector('.p-name');
               const emailEl = row.querySelector('.p-email');
               const name = nameEl ? nameEl.value.trim() : '';
               const email = emailEl ? emailEl.value.trim().toLowerCase() : '';
 
-              if (!name || !email || !email.includes('@')) continue;
+              if (!name || !email) continue;
+
+              if (!emailRegex.test(email)) {
+                showErrorBanner('Participant email "' + email + '" has invalid email syntax.');
+                btn.innerText = 'SCHEDULE WITH GOOGLE MEET →';
+                btn.disabled = false;
+                return;
+              }
+
+              const domain = email.split('@')[1];
+              if (RESERVED.includes(domain)) {
+                showErrorBanner('Participant email "' + email + '" uses a reserved example domain (' + domain + ') that cannot receive emails. Please enter a deliverable email address.');
+                btn.innerText = 'SCHEDULE WITH GOOGLE MEET →';
+                btn.disabled = false;
+                return;
+              }
 
               if (seenEmails.has(email)) {
                 showErrorBanner('Duplicate participant email address: ' + email + '. Each participant must have a unique email address.');

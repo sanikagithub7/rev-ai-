@@ -163,6 +163,9 @@ export default function MeetingsPage() {
     setError(null);
     setSuccessMsg(null);
 
+    const RESERVED_DOMAINS = ["example.com", "example.org", "example.net", "test.com", "invalid", "localhost", "sample.com"];
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
     const validParticipants = participants.filter((p) => p.name.trim() && p.email.trim());
     if (validParticipants.length === 0) {
       setError("At least one valid participant name and email address is required.");
@@ -173,6 +176,19 @@ export default function MeetingsPage() {
     const seenEmails = new Set<string>();
     for (const p of validParticipants) {
       const emailLower = p.email.trim().toLowerCase();
+      if (!emailRegex.test(emailLower)) {
+        setError(`Participant email "${emailLower}" has invalid email syntax.`);
+        setSubmitting(false);
+        return;
+      }
+
+      const domain = emailLower.split("@")[1];
+      if (RESERVED_DOMAINS.includes(domain)) {
+        setError(`Participant email "${emailLower}" uses a reserved example domain (${domain}) that cannot receive real emails. Please enter a deliverable email address.`);
+        setSubmitting(false);
+        return;
+      }
+
       if (seenEmails.has(emailLower)) {
         setError(`Duplicate participant email: ${emailLower}. Each participant must have a unique email address.`);
         setSubmitting(false);
