@@ -412,6 +412,14 @@ const server = http.createServer(async (req, res) => {
     const protocol = req.headers["x-forwarded-proto"] || "http";
     const config = getGoogleOAuthConfig(host, protocol);
 
+    // Clear stale memory and disk tokens so re-authentication always requests fresh Calendar write permissions
+    serverGoogleTokens.delete("default");
+    try {
+      if (fs.existsSync(TOKEN_CACHE_FILE)) {
+        fs.unlinkSync(TOKEN_CACHE_FILE);
+      }
+    } catch (e) {}
+
     console.info("[Google OAuth Initiation]", {
       path: pathname,
       configured: config.configured,
@@ -431,7 +439,7 @@ const server = http.createServer(async (req, res) => {
       "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
     );
     const state = encodeURIComponent(`rev-state-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
-    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(config.clientId)}&redirect_uri=${encodeURIComponent(config.redirectUri)}&scope=${scope}&access_type=offline&prompt=consent&state=${state}`;
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(config.clientId)}&redirect_uri=${encodeURIComponent(config.redirectUri)}&scope=${scope}&access_type=offline&prompt=consent&include_granted_scopes=true&state=${state}`;
 
     console.info("[Google OAuth Redirecting]", { oauthUrl });
     res.writeHead(302, { "Location": oauthUrl });

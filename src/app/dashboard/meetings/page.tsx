@@ -168,12 +168,14 @@ export default function MeetingsPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        if (data.code === "GOOGLE_NOT_CONNECTED") {
+        if (data.code === "GOOGLE_NOT_CONNECTED" || data.code === "NOT_CONNECTED") {
           setGoogleConnected(false);
           setError("Connect Google Calendar before scheduling a meeting.");
-        } else if (data.code === "GOOGLE_TOKEN_EXPIRED") {
+        } else if (data.code === "TOKEN_EXPIRED" || data.code === "GOOGLE_TOKEN_EXPIRED") {
           setGoogleConnected(false);
-          setError("Your Google Calendar connection has expired. Please reconnect Google Calendar.");
+          setError("Your Google Calendar connection expired. Please reconnect Google Calendar.");
+        } else if (data.code === "PERMISSION_DENIED") {
+          setError("Google Calendar needs permission to create events. Please click 'RECONNECT GOOGLE CALENDAR' and grant Calendar access.");
         } else {
           setError(data.error || "Google Calendar could not create the meeting. Please try again.");
         }

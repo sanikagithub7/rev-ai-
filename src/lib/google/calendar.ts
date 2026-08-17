@@ -65,7 +65,7 @@ export function getGoogleOAuthConsentUrl(redirectUri: string, stateNonce?: strin
     clientId
   )}&redirect_uri=${encodeURIComponent(
     redirectUri
-  )}&scope=${scope}&access_type=offline&prompt=consent&state=${encodedState}`;
+  )}&scope=${scope}&access_type=offline&prompt=consent&include_granted_scopes=true&state=${encodedState}`;
 
   return { url, state: statePayload };
 }
