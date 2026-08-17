@@ -872,7 +872,8 @@ const server = http.createServer(async (req, res) => {
 
           if (apiMsg.includes("disabled") || apiMsg.includes("has not been used in project") || errReason === "accessNotConfigured") {
             code = "CALENDAR_API_DISABLED";
-            cleanError = "Google Calendar API is newly enabled for project 47371793037. If you recently enabled it, Google Cloud propagation takes 1-3 minutes worldwide. Please click 'SCHEDULE WITH GOOGLE MEET' again in 1-2 minutes.";
+            const activationUrl = "https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=47371793037";
+            cleanError = `Google Calendar API must be enabled for project 47371793037. Please enable it in Google Cloud Console: ${activationUrl}`;
           } else if (errReason === "insufficientPermissions" || errReason === "insufficientScope" || apiMsg.toLowerCase().includes("insufficient")) {
             code = "GOOGLE_CALENDAR_SCOPE_MISSING";
             cleanError = "Google Calendar needs permission to create events. Please click 'RECONNECT GOOGLE CALENDAR' and grant Calendar access.";
