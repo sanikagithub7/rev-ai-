@@ -80,6 +80,9 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://xlyzfjphqz
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_QOa-_HaTG8SVUjeg6VAG3A__QL1jXHx";
 const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
+// In-Memory Token Store for guaranteed connection persistence & zero-latency fallback
+const serverGoogleTokens = new Map();
+
 // Helper to query Supabase REST API directly
 async function supabaseFetch(path, options = {}) {
   const headers = {
@@ -346,11 +349,33 @@ const server = http.createServer(async (req, res) => {
   // API ROUTE: GET /api/google/status
   if (pathname === "/api/google/status" && method === "GET") {
     try {
-      const supRes = await supabaseFetch("user_google_tokens?select=id,expires_at,updated_at&limit=1");
-      const data = await supRes.json();
-      const isConn = Array.isArray(data) && data.length > 0;
+      let isConn = false;
+      let lastUpdated = null;
+
+      // 1. Check server-side memory cache
+      const memToken = serverGoogleTokens.get("default");
+      if (memToken && memToken.access_token) {
+        isConn = true;
+        lastUpdated = memToken.updated_at;
+      }
+
+      // 2. Check Supabase DB table
+      if (!isConn) {
+        try {
+          const supRes = await supabaseFetch("user_google_tokens?select=id,expires_at,updated_at,access_token&limit=1");
+          if (supRes.ok) {
+            const data = await supRes.json();
+            if (Array.isArray(data) && data.length > 0 && data[0].access_token) {
+              isConn = true;
+              lastUpdated = data[0].updated_at;
+              serverGoogleTokens.set("default", data[0]);
+            }
+          }
+        } catch (e) {}
+      }
+
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ connected: isConn, lastUpdated: isConn ? data[0].updated_at : null }));
+      res.end(JSON.stringify({ connected: isConn, lastUpdated }));
     } catch (err) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ connected: false }));
@@ -459,20 +484,29 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {}
       }
 
-      // Save token in user_google_tokens
-      await supabaseFetch("user_google_tokens", {
-        method: "POST",
-        prefer: "resolution=merge-duplicates",
-        body: JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000000",
-          organization_id: orgId,
-          access_token: tokens.access_token,
-          refresh_token: finalRefreshToken,
-          expires_at: expiresAt,
-          scope: tokens.scope,
-          updated_at: new Date().toISOString()
-        })
-      });
+      const tokenRecord = {
+        user_id: "00000000-0000-0000-0000-000000000000",
+        organization_id: orgId,
+        access_token: tokens.access_token,
+        refresh_token: finalRefreshToken,
+        expires_at: expiresAt,
+        scope: tokens.scope,
+        updated_at: new Date().toISOString()
+      };
+
+      // 1. Save in memory for zero-latency availability
+      serverGoogleTokens.set("default", tokenRecord);
+
+      // 2. Persist in Supabase DB table
+      try {
+        await supabaseFetch("user_google_tokens", {
+          method: "POST",
+          prefer: "resolution=merge-duplicates",
+          body: JSON.stringify(tokenRecord)
+        });
+      } catch (e) {
+        console.warn("[Google OAuth Callback] Supabase DB write:", e.message);
+      }
 
       console.info("[Google OAuth Callback Success]", {
         orgId,
@@ -713,10 +747,21 @@ const server = http.createServer(async (req, res) => {
           endIso = new Date(startIso.getTime() + Number(durationMinutes) * 60000);
         }
 
-        // 2. Fetch server-side token
-        const tokenRes = await supabaseFetch("user_google_tokens?select=*&limit=1");
-        const tokens = await tokenRes.json();
-        const tokenRecord = Array.isArray(tokens) && tokens.length > 0 ? tokens[0] : null;
+        // 2. Fetch server-side token (Memory Store -> Supabase DB)
+        let tokenRecord = serverGoogleTokens.get("default") || null;
+
+        if (!tokenRecord) {
+          try {
+            const tokenRes = await supabaseFetch("user_google_tokens?select=*&limit=1");
+            if (tokenRes.ok) {
+              const tokens = await tokenRes.json();
+              if (Array.isArray(tokens) && tokens.length > 0) {
+                tokenRecord = tokens[0];
+                serverGoogleTokens.set("default", tokenRecord);
+              }
+            }
+          } catch (e) {}
+        }
 
         let accessToken = tokenRecord ? tokenRecord.access_token : null;
 
@@ -726,7 +771,7 @@ const server = http.createServer(async (req, res) => {
           res.end(JSON.stringify({
             success: false,
             code: "GOOGLE_NOT_CONNECTED",
-            error: "Google Calendar is not connected. Please click 'Connect Google Calendar' first."
+            error: "Connect Google Calendar before scheduling a meeting."
           }));
           return;
         }
@@ -1610,9 +1655,10 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
-        function openScheduleModal() {
-          if (!isGoogleConnected) {
-            alert('Please click "CONNECT GOOGLE CALENDAR" first to authenticate your Google Account before scheduling.');
+        async function openScheduleModal() {
+          const isConn = await checkGoogleStatus();
+          if (!isConn) {
+            alert('Connect Google Calendar before scheduling a meeting.');
             return;
           }
           document.getElementById('scheduleModal').style.display = 'flex';
