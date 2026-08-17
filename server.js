@@ -866,18 +866,22 @@ const server = http.createServer(async (req, res) => {
         if (!calRes.ok) {
           const errData = await calRes.json();
           const apiMsg = errData?.error?.message || "";
+          const errReason = errData?.error?.errors?.[0]?.reason || "";
           let code = "CALENDAR_EVENT_CREATE_FAILED";
           let cleanError = apiMsg || `Google Calendar API returned error (${calRes.status})`;
 
-          if (calRes.status === 401) {
+          if (apiMsg.includes("disabled") || apiMsg.includes("has not been used in project") || errReason === "accessNotConfigured") {
+            code = "CALENDAR_API_DISABLED";
+            cleanError = "Google Calendar API is newly enabled for project 47371793037. If you recently enabled it, Google Cloud propagation takes 1-3 minutes worldwide. Please click 'SCHEDULE WITH GOOGLE MEET' again in 1-2 minutes.";
+          } else if (errReason === "insufficientPermissions" || errReason === "insufficientScope" || apiMsg.toLowerCase().includes("insufficient")) {
+            code = "GOOGLE_CALENDAR_SCOPE_MISSING";
+            cleanError = "Google Calendar needs permission to create events. Please click 'RECONNECT GOOGLE CALENDAR' and grant Calendar access.";
+          } else if (calRes.status === 401) {
             code = "TOKEN_EXPIRED";
             cleanError = "Your Google Calendar connection expired. Please reconnect Google Calendar.";
           } else if (calRes.status === 403) {
             code = "PERMISSION_DENIED";
-            cleanError = "Your Google account does not have permission to create Calendar events.";
-          } else if (apiMsg.includes("disabled") || apiMsg.includes("has not been used in project")) {
-            code = "CALENDAR_API_DISABLED";
-            cleanError = "Google Calendar API is newly enabled for project 47371793037. If you recently enabled it, Google Cloud propagation takes 1-3 minutes worldwide. Please click 'SCHEDULE WITH GOOGLE MEET' again in 1-2 minutes.";
+            cleanError = apiMsg || "Your Google account does not have permission to create Calendar events.";
           }
 
           res.writeHead(400, { "Content-Type": "application/json" });
