@@ -1,5 +1,78 @@
 const http = require('http');
 const url = require('url');
+const fs = require('fs');
+const path = require('path');
+
+// Auto-load .env.local and .env files for standalone Node runtime
+function loadEnvFile(fileBasename) {
+  const envPath = path.join(__dirname, fileBasename);
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            const key = trimmed.substring(0, eqIdx).trim();
+            let val = trimmed.substring(eqIdx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.substring(1, val.length - 1);
+            }
+            if (!process.env[key]) {
+              process.env[key] = val;
+            }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn(`[ENV] Could not read ${fileBasename}:`, e.message);
+    }
+  }
+}
+
+loadEnvFile('.env.local');
+loadEnvFile('.env');
+
+// Safe Server-Side Google OAuth Configuration Helper
+function getGoogleOAuthConfig(host, protocol) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (host ? `${protocol || 'http'}://${host}` : 'http://localhost:5000');
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/google/callback`;
+
+  const isConfigured = Boolean(
+    clientId &&
+    clientSecret &&
+    !clientId.includes("YOUR_GOOGLE_CLIENT_ID") &&
+    !clientId.includes("your-google-client-id") &&
+    !clientSecret.includes("YOUR_GOOGLE_CLIENT_SECRET")
+  );
+
+  return {
+    configured: isConfigured,
+    clientId,
+    clientSecret,
+    redirectUri,
+    appUrl,
+    missing: [
+      ...(!clientId || clientId.includes("your-google-client-id") ? ["GOOGLE_CLIENT_ID"] : []),
+      ...(!clientSecret || clientSecret.includes("YOUR_GOOGLE") ? ["GOOGLE_CLIENT_SECRET"] : [])
+    ]
+  };
+}
+
+// Server Diagnostic Logging
+const initialConfig = getGoogleOAuthConfig();
+console.info("[Google OAuth Server Diagnostic]", {
+  configured: initialConfig.configured,
+  clientIdConfigured: Boolean(initialConfig.clientId),
+  clientSecretConfigured: Boolean(initialConfig.clientSecret),
+  appUrl: initialConfig.appUrl,
+  redirectUri: initialConfig.redirectUri,
+  missingVariables: initialConfig.missing,
+  nodeEnv: process.env.NODE_ENV || "development"
+});
 
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
@@ -289,12 +362,19 @@ const server = http.createServer(async (req, res) => {
   if ((pathname === "/api/google/auth" || pathname === "/api/auth/google") && method === "GET") {
     const host = req.headers["host"] || `localhost:${PORT}`;
     const protocol = req.headers["x-forwarded-proto"] || "http";
-    const appUrl = `${protocol}://${host}`;
-    const redirectUri = `${appUrl}/api/google/callback`;
+    const config = getGoogleOAuthConfig(host, protocol);
 
-    const clientId = process.env.GOOGLE_CLIENT_ID || "";
-    if (!clientId) {
-      res.writeHead(302, { "Location": `${appUrl}/dashboard/meetings?error=${encodeURIComponent("GOOGLE_CLIENT_ID environment variable is missing.")}` });
+    console.info("[Google OAuth Initiation]", {
+      path: pathname,
+      configured: config.configured,
+      appUrl: config.appUrl,
+      redirectUri: config.redirectUri,
+      clientIdPrefix: config.clientId ? config.clientId.substring(0, 15) + "..." : "NOT SET"
+    });
+
+    if (!config.configured) {
+      console.warn("[Google OAuth Blocked] Missing configuration variables:", config.missing);
+      res.writeHead(302, { "Location": `${config.appUrl}/dashboard/meetings?error=${encodeURIComponent("Google Calendar connection is not configured. Please contact the administrator.")}` });
       res.end();
       return;
     }
@@ -302,8 +382,10 @@ const server = http.createServer(async (req, res) => {
     const scope = encodeURIComponent(
       "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
     );
-    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&access_type=offline&prompt=consent`;
+    const state = encodeURIComponent(`rev-state-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(config.clientId)}&redirect_uri=${encodeURIComponent(config.redirectUri)}&scope=${scope}&access_type=offline&prompt=consent&state=${state}`;
 
+    console.info("[Google OAuth Redirecting]", { oauthUrl });
     res.writeHead(302, { "Location": oauthUrl });
     res.end();
     return;
@@ -313,14 +395,17 @@ const server = http.createServer(async (req, res) => {
   if (pathname === "/api/google/callback" && method === "GET") {
     const host = req.headers["host"] || `localhost:${PORT}`;
     const protocol = req.headers["x-forwarded-proto"] || "http";
-    const appUrl = `${protocol}://${host}`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
     const redirectUri = `${appUrl}/api/google/callback`;
 
     const code = reqUrl.query.code;
     const errorParam = reqUrl.query.error;
 
     if (errorParam) {
-      res.writeHead(302, { "Location": `${appUrl}/dashboard/meetings?error=${encodeURIComponent(`Google OAuth denied: ${errorParam}`)}` });
+      const errorMsg = errorParam === "access_denied"
+        ? "Google OAuth authorization was cancelled or denied."
+        : `Google OAuth error: ${errorParam}`;
+      res.writeHead(302, { "Location": `${appUrl}/dashboard/meetings?error=${encodeURIComponent(errorMsg)}` });
       res.end();
       return;
     }

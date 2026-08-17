@@ -26,18 +26,39 @@ export interface GoogleOAuthTokenResponse {
   token_type: string;
 }
 
+export interface GoogleConsentUrlResult {
+  url: string | null;
+  state?: string;
+  error?: string;
+}
+
 /**
- * Returns official Google OAuth 2.0 Consent URL for Calendar API scopes.
+ * Returns official Google OAuth 2.0 Consent URL for Calendar API scopes with state parameter.
  */
-export function getGoogleOAuthConsentUrl(redirectUri: string): string {
+export function getGoogleOAuthConsentUrl(redirectUri: string, stateNonce?: string): GoogleConsentUrlResult {
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
+
+  if (!clientId || clientId.includes("YOUR_GOOGLE_CLIENT_ID") || clientId.includes("your-google-client-id")) {
+    return {
+      url: null,
+      error: "Google Calendar connection is not configured. Please contact the administrator.",
+    };
+  }
+
   const scope = encodeURIComponent(
     "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
   );
 
-  return `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
+  const statePayload = stateNonce || `rev-state-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  const encodedState = encodeURIComponent(statePayload);
+
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${encodeURIComponent(
+    clientId
+  )}&redirect_uri=${encodeURIComponent(
     redirectUri
-  )}&scope=${scope}&access_type=offline&prompt=consent`;
+  )}&scope=${scope}&access_type=offline&prompt=consent&state=${encodedState}`;
+
+  return { url, state: statePayload };
 }
 
 /**
@@ -50,10 +71,10 @@ export async function exchangeGoogleOAuthCode(
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 
-  if (!clientId || !clientSecret) {
+  if (!clientId || !clientSecret || clientId.includes("YOUR_GOOGLE") || clientSecret.includes("YOUR_GOOGLE")) {
     return {
       success: false,
-      error: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables must be configured.",
+      error: "Google Calendar connection is not configured. Please contact the administrator.",
     };
   }
 
@@ -108,7 +129,7 @@ export async function refreshGoogleAccessToken(
 
     if (!res.ok) {
       const errData = await res.json();
-      return { success: false, error: errData.error_description || "Failed to refresh Google access token." };
+      return { success: false, error: errData.error_description || "Google Calendar connection expired. Please reconnect Google Calendar." };
     }
 
     const data = await res.json();
@@ -191,7 +212,7 @@ export async function createGoogleCalendarEventWithMeet(
         return {
           success: false,
           errorCode: "GOOGLE_TOKEN_EXPIRED",
-          error: "Google authentication token has expired. Please reconnect your Google Calendar.",
+          error: "Google Calendar connection expired. Please reconnect Google Calendar.",
         };
       }
       return {

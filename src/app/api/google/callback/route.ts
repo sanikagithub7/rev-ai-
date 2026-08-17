@@ -6,6 +6,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const errorParam = url.searchParams.get("error");
+  const state = url.searchParams.get("state");
 
   const host = request.headers.get("host") || url.host;
   const protocol = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
@@ -13,7 +14,10 @@ export async function GET(request: Request) {
   const redirectUri = `${appUrl}/api/google/callback`;
 
   if (errorParam) {
-    return NextResponse.redirect(`${appUrl}/dashboard/meetings?error=${encodeURIComponent(`Google OAuth denied: ${errorParam}`)}`);
+    const errorMsg = errorParam === "access_denied"
+      ? "Google OAuth authorization was cancelled or denied."
+      : `Google OAuth error: ${errorParam}`;
+    return NextResponse.redirect(`${appUrl}/dashboard/meetings?error=${encodeURIComponent(errorMsg)}`);
   }
 
   if (!code) {
@@ -45,7 +49,7 @@ export async function GET(request: Request) {
     const exchangeRes = await exchangeGoogleOAuthCode(code, redirectUri);
     if (!exchangeRes.success || !exchangeRes.tokens) {
       return NextResponse.redirect(
-        `${appUrl}/dashboard/meetings?error=${encodeURIComponent(exchangeRes.error || "Failed to exchange Google OAuth code.")}`
+        `${appUrl}/dashboard/meetings?error=${encodeURIComponent(exchangeRes.error || "Failed to authenticate with Google. Please try connecting again.")}`
       );
     }
 
@@ -70,7 +74,7 @@ export async function GET(request: Request) {
 
     if (upsertErr) {
       return NextResponse.redirect(
-        `${appUrl}/dashboard/meetings?error=${encodeURIComponent(`Failed to save Google tokens: ${upsertErr.message}`)}`
+        `${appUrl}/dashboard/meetings?error=${encodeURIComponent("Failed to save Google Calendar connection. Please try again.")}`
       );
     }
 
