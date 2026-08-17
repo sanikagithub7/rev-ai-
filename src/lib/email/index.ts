@@ -303,7 +303,7 @@ export async function sendMeetingNotifications(data: MeetingEmailParams): Promis
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: "REV AI <notifications@revai.io>",
+            from: process.env.EMAIL_FROM || "REV AI Notifications <onboarding@resend.dev>",
             to: [r.email],
             subject: `You're invited: ${data.meetingTitle}`,
             html,

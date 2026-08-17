@@ -1028,7 +1028,7 @@ const server = http.createServer(async (req, res) => {
     <form onsubmit="handleLogin(event)">
       <div>
         <label>WORK EMAIL</label>
-        <input type="email" id="email" value="sanika@revai.io" required />
+        <input type="email" id="email" value="sanika@gmail.com" required />
       </div>
 
       <div>
@@ -1057,7 +1057,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     function adminFastLogin() {
-      document.getElementById('email').value = 'sanika@revai.io';
+      document.getElementById('email').value = 'sanika@gmail.com';
       document.getElementById('password').value = 'Sanika@777';
       document.getElementById('secCode').value = 'rev9422';
       alert('Signed in as Admin: Sanika Wazarkar');
@@ -2041,7 +2041,7 @@ const server = http.createServer(async (req, res) => {
           <tbody>
             <tr>
               <td style="font-weight: 900;">Sanika Wazarkar</td>
-              <td>sanika@revai.io</td>
+              <td>sanika@gmail.com</td>
               <td><span class="badge badge-hot">ADMIN</span></td>
               <td>Default Organization</td>
               <td><span class="badge badge-hot">ACTIVE</span></td>

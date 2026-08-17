@@ -227,7 +227,10 @@ export async function POST(request: Request) {
     }
 
     // 6. Send Email Notifications with granular per-attendee delivery status
-    const hostEmail = user?.email || "sanika@revai.io";
+    let hostEmail = user?.email || conn.accountEmail || "";
+    if (!hostEmail || hostEmail.includes("revai.io")) {
+      hostEmail = primaryParticipant.email; // Prevent sending to unconfigured/fictitious host address
+    }
     const hostName = user?.user_metadata?.full_name || "Sanika Wazarkar";
 
     const emailRes = await sendMeetingNotifications({
