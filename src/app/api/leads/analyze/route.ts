@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { scrapeWebsiteContent } from "@/lib/ai/scraper";
-import { analyzeLeadWithQwen } from "@/lib/ai/ollama";
+import { analyzeStructuredLeadIntelligenceWithQwen } from "@/lib/ai/ollama";
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +13,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized. Please sign in." }, { status: 401 });
     }
 
-    // Get tenant context — always resolve org from session, never trust frontend
+    // Get tenant context — always resolve org from user session
     const { data: member } = await supabase
       .from("organization_members")
       .select("organization_id")
@@ -27,21 +26,16 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    // leadId is required — we UPDATE the existing lead, never create a duplicate
-    const { leadId, url, name, email, company } = body || {};
+    const { leadId, url, name, email, company, industry, budget, statedRequirement, inboundMessage } = body || {};
 
     if (!leadId || typeof leadId !== "string") {
       return NextResponse.json({ error: "leadId is required for AI analysis." }, { status: 400 });
     }
 
-    if (!url || typeof url !== "string") {
-      return NextResponse.json({ error: "Website URL is required for AI analysis." }, { status: 400 });
-    }
-
-    // Verify that the lead belongs to this user's organization (tenant isolation)
+    // Retrieve authoritative lead from Supabase
     const { data: existingLead, error: leadFetchErr } = await supabase
       .from("leads")
-      .select("id, organization_id")
+      .select("*")
       .eq("id", leadId)
       .eq("organization_id", member.organization_id)
       .single();
@@ -50,58 +44,54 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Lead not found or access denied." }, { status: 404 });
     }
 
-    // 1. SSRF-Safe Server Scraping
-    const scrapeRes = await scrapeWebsiteContent(url);
-    if (!scrapeRes.success || !scrapeRes.content) {
-      return NextResponse.json({
-        error: scrapeRes.error || "Website could not be analyzed.",
-      }, { status: 422 });
-    }
+    // Prepare lead payload from lead record or request body fallback
+    const payload = {
+      contactName: name?.trim() || existingLead.name || "Unknown Lead",
+      companyName: company?.trim() || existingLead.company || "",
+      email: email?.trim() || existingLead.email || "",
+      phone: existingLead.phone || "",
+      industry: industry?.trim() || existingLead.industry || "",
+      budget: budget?.trim() || existingLead.budget || "",
+      statedRequirement: statedRequirement?.trim() || existingLead.stated_requirement || "",
+      inboundMessage: inboundMessage?.trim() || existingLead.inbound_notes || "",
+    };
 
-    // 2. Ollama + Qwen Lead Analysis
-    let aiResults;
+    // Execute Qwen AI Structured Lead Intelligence Analysis
+    let aiResult;
     try {
-      aiResults = await analyzeLeadWithQwen(url, scrapeRes.content);
+      aiResult = await analyzeStructuredLeadIntelligenceWithQwen(payload);
     } catch (aiErr: any) {
+      await supabase.from("ai_runs").insert({
+        organization_id: member.organization_id,
+        type: "QWEN_LEAD_INTELLIGENCE",
+        model: "qwen2.5",
+        input: { leadId, payload },
+        output: { error: aiErr?.message },
+        status: "FAILED",
+        error: aiErr?.message,
+      });
+
       return NextResponse.json({
-        error: aiErr.message || "AI service is currently unavailable.",
+        error: aiErr.message || "Ollama is unavailable. Please start Ollama and verify the configured Qwen model.",
       }, { status: 503 });
     }
 
-    // 3. Compute score and heat_level from AI results
-    const score = aiResults.hot_lead.result
-      ? Math.max(85, aiResults.hot_lead.confidence)
-      : Math.round(aiResults.lead_qualification.confidence * 0.8);
-
-    // Map AI result to heat_level (HOT / WARM / COLD)
-    let heat_level: string;
-    if (aiResults.hot_lead.result) {
-      heat_level = "HOT";
-    } else if (score >= 50) {
-      heat_level = "WARM";
-    } else {
-      heat_level = "COLD";
-    }
-
-    const metadata = {
-      website_url: url,
-      hot_lead: aiResults.hot_lead,
-      spam_detection: aiResults.spam_detection,
-      lead_qualification: aiResults.lead_qualification,
-      model_used: aiResults.modelUsed,
-      analyzed_at: new Date().toISOString(),
+    const existingMetadata = existingLead.metadata || {};
+    const updatedMetadata = {
+      ...existingMetadata,
+      ai_intelligence: aiResult,
     };
 
-    // 4. UPDATE the existing lead — NEVER insert a new one
+    // UPDATE the SAME lead record in Supabase — NEVER insert a duplicate
     const { data: updatedLead, error: updateErr } = await supabase
       .from("leads")
       .update({
-        score,
-        heat_level,
-        metadata,
+        score: aiResult.lead_score,
+        heat_level: aiResult.classification,
+        metadata: updatedMetadata,
       })
       .eq("id", leadId)
-      .eq("organization_id", member.organization_id) // double-check org isolation
+      .eq("organization_id", member.organization_id)
       .select()
       .single();
 
@@ -109,21 +99,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    // 5. Record in ai_runs audit log
+    // Log execution to public.ai_runs
     await supabase.from("ai_runs").insert({
       organization_id: member.organization_id,
       type: "QWEN_LEAD_INTELLIGENCE",
-      model: aiResults.modelUsed,
-      input: { website_url: url, lead_id: leadId },
-      output: metadata,
-      tokens: Math.round(scrapeRes.content.length / 4),
+      model: aiResult.modelUsed,
+      input: { leadId, payload },
+      output: aiResult,
+      tokens: Math.round(((payload.inboundMessage || "").length + (payload.statedRequirement || "").length) / 4) + 120,
       status: "SUCCESS",
     });
 
     return NextResponse.json({
       success: true,
       lead: updatedLead,
-      analysis: aiResults,
+      analysis: aiResult,
+      intelligence: aiResult,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Unable to analyze lead. Please try again." }, { status: 500 });

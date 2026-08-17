@@ -30,14 +30,17 @@ export interface LeadIntelligenceOutput {
 
 export interface StructuredLeadIntelligence {
   lead_score: number;
+  ai_score: number;
   classification: "HOT" | "WARM" | "COLD" | "SPAM";
   urgency: "HIGH" | "MEDIUM" | "LOW";
   confidence: number;
   recommended_action: string;
   detected_intent: string;
   positive_buying_signals: string[];
+  buying_signals: string[];
   risks: string[];
   evidence: string[];
+  reasoning?: string;
   modelUsed: string;
   latency_ms: number;
   analyzed_at: string;
@@ -45,14 +48,17 @@ export interface StructuredLeadIntelligence {
 
 export const LeadIntelligenceSchema = z.object({
   lead_score: z.number().int().min(0).max(100),
+  ai_score: z.number().int().min(0).max(100),
   classification: z.enum(["HOT", "WARM", "COLD", "SPAM"]),
   urgency: z.enum(["HIGH", "MEDIUM", "LOW"]),
   confidence: z.number().int().min(0).max(100),
   recommended_action: z.string().min(1),
   detected_intent: z.string().min(1),
   positive_buying_signals: z.array(z.string()),
+  buying_signals: z.array(z.string()),
   risks: z.array(z.string()),
   evidence: z.array(z.string()),
+  reasoning: z.string().optional(),
 });
 
 export interface ReadinessItem {
@@ -729,16 +735,23 @@ Analyze the lead and generate structured intelligence in JSON format.`;
       ? parsed.evidence.map(String).filter(Boolean)
       : [];
 
+    const buying_signals = Array.isArray(parsed?.buying_signals)
+      ? parsed.buying_signals.map(String).filter(Boolean)
+      : positive_buying_signals;
+
     const candidate = {
       lead_score: score,
+      ai_score: score,
       classification,
       urgency,
       confidence,
       recommended_action: String(parsed?.recommended_action || "CONTACT_IMMEDIATELY").toUpperCase().replace(/\s+/g, "_"),
       detected_intent: String(parsed?.detected_intent || payload.statedRequirement || "B2B Sales Inquiry"),
       positive_buying_signals,
+      buying_signals,
       risks,
       evidence,
+      reasoning: String(parsed?.reasoning || "Structured AI Lead Analysis based on evidence."),
     };
 
     // Zod strict validation
