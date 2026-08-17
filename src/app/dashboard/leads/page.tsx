@@ -20,7 +20,13 @@ import {
   MessageSquare,
   FileText,
   DollarSign,
+  Sparkles,
+  Zap,
+  Code,
+  ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
+import { StructuredLeadIntelligence } from "@/lib/ai/ollama";
 
 interface LeadRecord {
   id: string;
@@ -38,7 +44,11 @@ interface LeadRecord {
   score: number;
   stated_requirement?: string;
   inbound_notes?: string;
-  metadata?: any;
+  metadata?: {
+    ai_intelligence?: StructuredLeadIntelligence;
+    website_url?: string;
+    [key: string]: any;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -53,7 +63,7 @@ export default function LeadsManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Filters & Search state matching screenshot
+  // Filters & Search state
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL STATUSES");
   const [priorityFilter, setPriorityFilter] = useState("ALL PRIORITIES");
@@ -61,11 +71,12 @@ export default function LeadsManagementPage() {
   const [sortField, setSortField] = useState("CREATED DATE");
   const [sortOrder, setSortOrder] = useState("DESCENDING");
 
-  // Create Modal state
+  // Create & Edit Modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form Fields matching screenshot 2 exactly
+  // Modal Create Form State
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -78,9 +89,21 @@ export default function LeadsManagementPage() {
   const [statedRequirement, setStatedRequirement] = useState("");
   const [inboundNotes, setInboundNotes] = useState("");
 
-  // Edit Modal state
-  const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
-  const [analyzingLeadId, setAnalyzingLeadId] = useState<string | null>(null);
+  // AI Workspace Active Lead State
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [formContactName, setFormContactName] = useState("");
+  const [formCompanyName, setFormCompanyName] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formPhone, setFormPhone] = useState("");
+  const [formIndustry, setFormIndustry] = useState("");
+  const [formBudget, setFormBudget] = useState("");
+  const [formStatedRequirement, setFormStatedRequirement] = useState("");
+  const [formInboundMessage, setFormInboundMessage] = useState("");
+
+  // AI Analysis State
+  const [analyzing, setAnalyzing] = useState(false);
+  const [activeIntelligence, setActiveIntelligence] = useState<StructuredLeadIntelligence | null>(null);
+  const [showRawJsonModal, setShowRawJsonModal] = useState(false);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -102,7 +125,21 @@ export default function LeadsManagementPage() {
         setError(data.error || "Failed to load leads from database.");
         setLeads([]);
       } else {
-        setLeads(data.leads || []);
+        const loadedLeads: LeadRecord[] = data.leads || [];
+        setLeads(loadedLeads);
+
+        // Auto-select highlight lead from URL or keep currently selected lead updated
+        if (loadedLeads.length > 0) {
+          const target = highlightLeadId
+            ? loadedLeads.find((l) => l.id === highlightLeadId) || loadedLeads[0]
+            : selectedLeadId
+            ? loadedLeads.find((l) => l.id === selectedLeadId) || loadedLeads[0]
+            : loadedLeads[0];
+
+          if (target && target.id !== selectedLeadId) {
+            populateWorkspaceLead(target);
+          }
+        }
       }
     } catch {
       setError("Failed to connect to backend server.");
@@ -110,13 +147,33 @@ export default function LeadsManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, priorityFilter, heatFilter, sortField, sortOrder]);
+  }, [search, statusFilter, priorityFilter, heatFilter, sortField, sortOrder, highlightLeadId, selectedLeadId]);
 
   useEffect(() => {
     fetchLeads();
   }, [fetchLeads]);
 
-  // Handle Create Lead
+  // Populate the Left & Right Workspace panels with selected lead data
+  function populateWorkspaceLead(lead: LeadRecord) {
+    setSelectedLeadId(lead.id);
+    setFormContactName(lead.name || "");
+    setFormCompanyName(lead.company || "");
+    setFormEmail(lead.email || "");
+    setFormPhone(lead.phone || "");
+    setFormIndustry(lead.industry || "");
+    setFormBudget(lead.budget || "");
+    setFormStatedRequirement(lead.stated_requirement || "");
+    setFormInboundMessage(lead.inbound_notes || "");
+
+    // Populate existing AI Intelligence if present
+    if (lead.metadata?.ai_intelligence) {
+      setActiveIntelligence(lead.metadata.ai_intelligence);
+    } else {
+      setActiveIntelligence(null);
+    }
+  }
+
+  // Handle Create Lead via Modal
   async function handleCreateLead(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
@@ -165,6 +222,8 @@ export default function LeadsManagementPage() {
         setPriority("NORMAL");
         setStatedRequirement("");
         setInboundNotes("");
+
+        populateWorkspaceLead(data.lead);
         fetchLeads();
         setTimeout(() => setToast(null), 4000);
       }
@@ -228,6 +287,10 @@ export default function LeadsManagementPage() {
       const res = await fetch(`/api/leads/${id}`, { method: "DELETE" });
       if (res.ok) {
         setToast(`Lead "${leadName}" deleted.`);
+        if (selectedLeadId === id) {
+          setSelectedLeadId(null);
+          setActiveIntelligence(null);
+        }
         fetchLeads();
         setTimeout(() => setToast(null), 4000);
       } else {
@@ -239,53 +302,51 @@ export default function LeadsManagementPage() {
     }
   }
 
-  // Handle AI Lead Analysis with Ollama Qwen
-  // IMPORTANT: Passes leadId so the analyze route UPDATES the existing lead
-  // instead of creating a duplicate. Lead count must stay the same after analysis.
-  async function handleAnalyzeLead(lead: LeadRecord) {
-    setAnalyzingLeadId(lead.id);
+  // RUN LEAD INTELLIGENCE AGENT (Calls backend POST /api/leads/intelligence)
+  async function handleRunLeadIntelligence() {
+    if (!formContactName.trim()) {
+      setError("Contact Name is required to run Lead Intelligence Agent.");
+      return;
+    }
+
+    setAnalyzing(true);
     setError(null);
+
     try {
-      // Build a target URL from metadata (if previous analysis stored one)
-      // or infer from company name — fallback to empty so analyze route rejects gracefully
-      const targetUrl =
-        (lead.metadata?.website_url as string) ||
-        (lead.company ? `https://${lead.company.toLowerCase().replace(/\s+/g, "")}.com` : "");
-
-      if (!targetUrl) {
-        setError(`No website URL available for "${lead.name}". Add a company to enable AI analysis.`);
-        setAnalyzingLeadId(null);
-        return;
-      }
-
-      const res = await fetch("/api/leads/analyze", {
+      const res = await fetch("/api/leads/intelligence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          leadId: lead.id, // required — ensures UPDATE not INSERT
-          url: targetUrl,
-          name: lead.name,
-          email: lead.email,
-          company: lead.company,
+          leadId: selectedLeadId || undefined,
+          contactName: formContactName.trim(),
+          companyName: formCompanyName.trim(),
+          email: formEmail.trim(),
+          phone: formPhone.trim(),
+          industry: formIndustry.trim(),
+          budget: formBudget.trim(),
+          statedRequirement: formStatedRequirement.trim(),
+          inboundMessage: formInboundMessage.trim(),
         }),
       });
 
       const data = await res.json();
-      if (res.ok && data.analysis) {
-        setToast(`AI Analysis completed for "${lead.name}"!`);
-        fetchLeads(); // refresh to show updated score/heat_level
+
+      if (!res.ok) {
+        setError(data.error || "AI service is currently unavailable.");
+      } else if (data.intelligence && data.lead) {
+        setActiveIntelligence(data.intelligence);
+        setSelectedLeadId(data.lead.id);
+        setToast(`AI Lead Intelligence completed for "${data.lead.name}"!`);
+        fetchLeads(); // Refresh lead table to reflect persisted score & heat_level
         setTimeout(() => setToast(null), 4000);
-      } else {
-        setError(data.error || "AI Analysis unavailable.");
       }
-    } catch {
-      setError("AI Analysis unavailable. Check Ollama/Qwen connection.");
+    } catch (err: any) {
+      setError(err?.message || "AI service unavailable. Make sure Ollama is running.");
     } finally {
-      setAnalyzingLeadId(null);
+      setAnalyzing(false);
     }
   }
 
-  // Navigate to Conversations 2.0 with Lead Context
   function handleOpenConversation(lead: LeadRecord) {
     router.push(`/dashboard/conversations?leadId=${lead.id}`);
   }
@@ -299,30 +360,53 @@ export default function LeadsManagementPage() {
         </div>
       )}
 
-      {/* TOP HEADER CARD — MATCHING SCREENSHOT 1 EXACTLY */}
-      <div className="bg-white sharp-border p-6 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="space-y-2 z-10 max-w-xl">
-          {/* Top Black Badge */}
+      {/* TOP pinkish/sharp BANNER - MATCHING REFERENCE SCREENSHOT */}
+      <div className="bg-[#FFF0F5] border border-black p-3 text-center text-xs font-mono font-extrabold uppercase tracking-widest text-black sharp-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 bg-black inline-block" />
+          <span>INTERNAL DECISION ENGINE &bull; STRUCTURED JSON VALIDATION &bull; SERVER-SIDE OLLAMA</span>
+        </div>
+        <div className="text-[10px] bg-black text-white px-2 py-0.5 font-mono font-bold">
+          QWEN 2.5 ACTIVE
+        </div>
+      </div>
+
+      {/* WORKSPACE HEADER BAR / LEAD SELECTOR */}
+      <div className="bg-white sharp-border p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider sharp-border">
-            <User className="w-3 h-3 text-[#12B76A]" />
-            MULTI-TENANT CRM LEADS PIPELINE
+            <Sparkles className="w-3 h-3 text-[#12B76A]" />
+            AI LEAD INTELLIGENCE WORKSPACE
           </div>
-
-          <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight text-black">
-            LEADS MANAGEMENT ({leads.length})
+          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-black flex items-center gap-2">
+            LEAD INTELLIGENCE AGENT
           </h1>
-
-          <p className="text-[11px] font-mono text-neutral-600 uppercase tracking-wider">
-            REAL-TIME WORKSPACE LEADS &bull; END-TO-END MULTI-TENANT SECURITY
-          </p>
         </div>
 
-        {/* Far-Right Green Block with Create Button */}
-        <div className="relative md:self-stretch flex items-center justify-end">
-          <div className="hidden md:block w-28 bg-[#12B76A] absolute right-0 top-0 bottom-0 sharp-border" />
+        {/* Lead Dropdown Selector & Create Button */}
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <select
+            value={selectedLeadId || ""}
+            onChange={(e) => {
+              const selected = leads.find((l) => l.id === e.target.value);
+              if (selected) populateWorkspaceLead(selected);
+            }}
+            className="flex-1 md:w-64 p-2 border border-black bg-[#F1F2F3] text-xs font-mono font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+          >
+            {leads.length === 0 ? (
+              <option value="">NO LEADS AVAILABLE</option>
+            ) : (
+              leads.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} {l.company ? `(${l.company})` : ""} &bull; {l.heat_level || "NEW"}
+                </option>
+              ))
+            )}
+          </select>
+
           <button
             onClick={() => setShowCreateModal(true)}
-            className="btn-pill-primary text-xs relative z-10 cursor-pointer shadow-md"
+            className="btn-pill-primary text-xs shrink-0 cursor-pointer shadow-sm"
           >
             + CREATE NEW LEAD
           </button>
@@ -336,11 +420,325 @@ export default function LeadsManagementPage() {
         </div>
       )}
 
-      {/* SEARCH / FILTER SECTION — MATCHING SCREENSHOT 1 EXACTLY */}
+      {/* 2-COLUMN INTELLIGENCE WORKSPACE - EXACTLY MATCHING REFERENCE SCREENSHOT */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* ========================================================================= */}
+        {/* LEFT PANEL — INBOUND LEAD SAMPLE DATA */}
+        {/* ========================================================================= */}
+        <div className="lg:col-span-6 bg-white sharp-border p-6 flex flex-col justify-between space-y-5">
+          <div className="space-y-4">
+            {/* Header Box */}
+            <div className="border-b border-black pb-3">
+              <h2 className="text-xl font-black uppercase tracking-tight text-black flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#12B76A]" /> INBOUND LEAD SAMPLE DATA
+              </h2>
+              <p className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
+                SIMULATE UNFORMATTED INCOMING LEAD SUBMISSION PAYLOAD
+              </p>
+            </div>
+
+            {/* Input Form Fields matching reference screenshot exactly */}
+            <div className="space-y-4 font-mono text-xs">
+              {/* Row 1: CONTACT NAME & COMPANY NAME */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                    CONTACT NAME
+                  </label>
+                  <input
+                    type="text"
+                    value={formContactName}
+                    onChange={(e) => setFormContactName(e.target.value)}
+                    placeholder="Rahul Sharma"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                    COMPANY NAME
+                  </label>
+                  <input
+                    type="text"
+                    value={formCompanyName}
+                    onChange={(e) => setFormCompanyName(e.target.value)}
+                    placeholder="Example Technologies"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: INDUSTRY SECTOR & ESTIMATED BUDGET (₹) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                    INDUSTRY SECTOR
+                  </label>
+                  <input
+                    type="text"
+                    value={formIndustry}
+                    onChange={(e) => setFormIndustry(e.target.value)}
+                    placeholder="SaaS"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                    ESTIMATED BUDGET (₹)
+                  </label>
+                  <input
+                    type="text"
+                    value={formBudget}
+                    onChange={(e) => setFormBudget(e.target.value)}
+                    placeholder="200000"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: STATED REQUIREMENT */}
+              <div>
+                <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                  STATED REQUIREMENT
+                </label>
+                <input
+                  type="text"
+                  value={formStatedRequirement}
+                  onChange={(e) => setFormStatedRequirement(e.target.value)}
+                  placeholder="Sales automation & lead qualification workflow"
+                  className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                />
+              </div>
+
+              {/* Row 4: INBOUND MESSAGE / CUSTOMER QUERY */}
+              <div>
+                <label className="block font-bold uppercase mb-1 text-[10px] text-neutral-700">
+                  INBOUND MESSAGE / CUSTOMER QUERY
+                </label>
+                <textarea
+                  rows={4}
+                  value={formInboundMessage}
+                  onChange={(e) => setFormInboundMessage(e.target.value)}
+                  placeholder="We urgently need to automate our sales process to qualify leads faster."
+                  className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold text-black focus:outline-none focus:bg-white sharp-border"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* RUN AI BUTTON — PROMINENT BLACK PILL BUTTON MATCHING SCREENSHOT */}
+          <div className="pt-2">
+            <button
+              onClick={handleRunLeadIntelligence}
+              disabled={analyzing}
+              className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 sharp-border shadow-md cursor-pointer transition-all disabled:opacity-50"
+            >
+              {analyzing ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#12B76A]" />
+                  ANALYZING LEAD WITH QWEN...
+                </>
+              ) : (
+                <>
+                  RUN LEAD INTELLIGENCE AGENT &rarr;
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* RIGHT PANEL — INTELLIGENCE DECISIONS */}
+        {/* ========================================================================= */}
+        <div className="lg:col-span-6 bg-white sharp-border p-6 flex flex-col justify-between space-y-5">
+          <div className="space-y-4">
+            {/* Header Box + RAW JSON Button */}
+            <div className="flex items-start justify-between border-b border-black pb-3">
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-tight text-black flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#12B76A]" /> INTELLIGENCE DECISIONS
+                </h2>
+                <p className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
+                  ZOD VALIDATED OUTPUT &bull; AUDIT LOGGED IN PUBLIC.AI_RUNS
+                </p>
+              </div>
+
+              {activeIntelligence && (
+                <button
+                  onClick={() => setShowRawJsonModal(true)}
+                  className="px-3 py-1.5 bg-black text-white text-[10px] font-mono font-bold uppercase tracking-wider sharp-border hover:bg-neutral-800 cursor-pointer flex items-center gap-1"
+                >
+                  <Code className="w-3 h-3 text-[#12B76A]" /> RAW JSON
+                </button>
+              )}
+            </div>
+
+            {!activeIntelligence ? (
+              /* UN-ANALYZED / EMPTY STATE FOR RIGHT PANEL */
+              <div className="p-12 text-center space-y-3 bg-[#F1F2F3] sharp-border my-6">
+                <Flame className="w-10 h-10 text-neutral-400 mx-auto" />
+                <h3 className="text-lg font-black uppercase text-black">LEAD NOT ANALYZED</h3>
+                <p className="text-xs text-neutral-600 font-mono max-w-xs mx-auto">
+                  Click &quot;RUN LEAD INTELLIGENCE AGENT &rarr;&quot; to generate real-time AI classification, score, buying signals, and workflow recommendations.
+                </p>
+              </div>
+            ) : (
+              /* ACTIVE AI INTELLIGENCE OUTPUT — EXACT MATCH TO REFERENCE SCREENSHOT */
+              <div className="space-y-5 font-mono">
+                {/* TOP 3 STAT CARDS */}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* CARD 1: AI LEAD SCORE */}
+                  <div className="p-4 bg-white border border-black sharp-border text-center space-y-1">
+                    <div className="text-[9px] font-bold text-neutral-500 uppercase">AI LEAD SCORE</div>
+                    <div className="text-3xl md:text-4xl font-black text-black tracking-tight">
+                      {activeIntelligence.lead_score}
+                    </div>
+                    <div className="text-[9px] font-bold text-neutral-400 uppercase">SCALE 0 - 100</div>
+                  </div>
+
+                  {/* CARD 2: CLASSIFICATION */}
+                  <div className="p-4 bg-white border border-black sharp-border text-center space-y-1">
+                    <div className="text-[9px] font-bold text-neutral-500 uppercase">CLASSIFICATION</div>
+                    <div>
+                      <span
+                        className={`inline-block px-3 py-1 text-xs font-black uppercase tracking-wider sharp-border ${
+                          activeIntelligence.classification === "HOT"
+                            ? "bg-[#12B76A] text-white"
+                            : activeIntelligence.classification === "WARM"
+                            ? "bg-[#F4B62A] text-black"
+                            : activeIntelligence.classification === "SPAM"
+                            ? "bg-red-600 text-white"
+                            : "bg-neutral-200 text-black"
+                        }`}
+                      >
+                        {activeIntelligence.classification === "HOT" && "🔥 "}
+                        {activeIntelligence.classification}
+                      </span>
+                    </div>
+                    <div className="text-[9px] font-bold text-neutral-400 uppercase">HEAT LEVEL</div>
+                  </div>
+
+                  {/* CARD 3: URGENCY */}
+                  <div className="p-4 bg-white border border-black sharp-border text-center space-y-1">
+                    <div className="text-[9px] font-bold text-neutral-500 uppercase">URGENCY</div>
+                    <div>
+                      <span
+                        className={`inline-block px-3 py-1 text-xs font-black uppercase tracking-wider sharp-border ${
+                          activeIntelligence.urgency === "HIGH"
+                            ? "bg-red-600 text-white"
+                            : activeIntelligence.urgency === "MEDIUM"
+                            ? "bg-[#F4B62A] text-black"
+                            : "bg-neutral-200 text-black"
+                        }`}
+                      >
+                        {activeIntelligence.urgency}
+                      </span>
+                    </div>
+                    <div className="text-[9px] font-bold text-neutral-400 uppercase">
+                      CONFIDENCE: {activeIntelligence.confidence}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* RECOMMENDED WORKFLOW ACTION BOX */}
+                <div className="p-4 bg-[#E8F8F0] border border-black sharp-border space-y-2">
+                  <div className="text-[10px] font-bold text-neutral-600 uppercase tracking-wider">
+                    RECOMMENDED WORKFLOW ACTION
+                  </div>
+                  <div className="text-sm font-black uppercase text-black flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-[#12B76A]" />
+                    {activeIntelligence.recommended_action}
+                  </div>
+                  <div className="text-[11px] text-neutral-700 leading-snug">
+                    <span className="font-bold uppercase text-[9px] block text-neutral-500 mb-0.5">DETECTED INTENT:</span>
+                    {activeIntelligence.detected_intent}
+                  </div>
+                </div>
+
+                {/* POSITIVE BUYING SIGNALS */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-black flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#12B76A]" /> POSITIVE BUYING SIGNALS
+                  </div>
+                  <div className="space-y-1.5">
+                    {activeIntelligence.positive_buying_signals && activeIntelligence.positive_buying_signals.length > 0 ? (
+                      activeIntelligence.positive_buying_signals.map((sig, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2 bg-[#F1F2F3] border border-neutral-300 text-xs font-medium text-black sharp-border flex items-start gap-2"
+                        >
+                          <span className="text-[#12B76A] font-bold">&check;</span>
+                          <span>{sig}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-2 bg-[#F1F2F3] border border-neutral-300 text-xs text-neutral-500 sharp-border">
+                        No strong buying signals detected.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* IDENTIFIED RISKS & FRICTION POINTS */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-black flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> IDENTIFIED RISKS &amp; FRICTION POINTS
+                  </div>
+                  <div className="space-y-1.5">
+                    {activeIntelligence.risks && activeIntelligence.risks.length > 0 ? (
+                      activeIntelligence.risks.map((risk, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2 bg-amber-50 border border-amber-300 text-xs font-medium text-amber-900 sharp-border flex items-start gap-2"
+                        >
+                          <span className="text-amber-600 font-bold">&#9888;</span>
+                          <span>{risk}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-2 bg-[#F1F2F3] border border-neutral-300 text-xs text-neutral-500 sharp-border">
+                        No significant risks detected.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* BOTTOM MODEL & LATENCY FOOTER MATCHING REFERENCE SCREENSHOT */}
+          {activeIntelligence && (
+            <div className="pt-3 border-t border-black flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600 uppercase">
+              <div>MODEL: {activeIntelligence.modelUsed}</div>
+              <div>LATENCY: {activeIntelligence.latency_ms}MS</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* PERSISTENT LEADS PIPELINE TABLE — (BELOW WORKSPACE) */}
+      {/* ========================================================================= */}
       <div className="bg-white sharp-border p-4 space-y-4">
-        {/* Top Row: Search Input + Refresh Button */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-black pb-3">
+          <h2 className="text-lg font-black uppercase text-black flex items-center gap-2">
+            <User className="w-4 h-4 text-[#12B76A]" /> AUTHORIZED WORKSPACE LEADS PIPELINE ({leads.length})
+          </h2>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchLeads}
+              className="px-3 py-1.5 border border-black bg-[#F1F2F3] hover:bg-neutral-200 text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 sharp-border cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> REFRESH
+            </button>
+          </div>
+        </div>
+
+        {/* Search & Filter Controls */}
+        <div className="space-y-3">
+          <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
               type="text"
@@ -351,278 +749,249 @@ export default function LeadsManagementPage() {
             />
           </div>
 
-          <button
-            onClick={fetchLeads}
-            className="px-4 py-2 border border-black bg-[#F1F2F3] hover:bg-neutral-200 text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 sharp-border cursor-pointer self-start sm:self-auto"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> REFRESH
-          </button>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1 text-xs font-mono font-bold uppercase">
+            <div>
+              <label className="block text-[9px] text-neutral-500 mb-1">STATUS</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+              >
+                <option value="ALL STATUSES">ALL STATUSES</option>
+                <option value="NEW">NEW</option>
+                <option value="CONTACTED">CONTACTED</option>
+                <option value="QUALIFIED">QUALIFIED</option>
+                <option value="CONVERTED">CONVERTED</option>
+                <option value="LOST">LOST</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] text-neutral-500 mb-1">PRIORITY</label>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+              >
+                <option value="ALL PRIORITIES">ALL PRIORITIES</option>
+                <option value="LOW">LOW</option>
+                <option value="NORMAL">NORMAL</option>
+                <option value="HIGH">HIGH</option>
+                <option value="URGENT">URGENT</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] text-neutral-500 mb-1">AI CLASSIFICATION</label>
+              <select
+                value={heatFilter}
+                onChange={(e) => setHeatFilter(e.target.value)}
+                className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+              >
+                <option value="ALL HEAT LEVELS">ALL HEAT LEVELS</option>
+                <option value="HOT">HOT</option>
+                <option value="WARM">WARM</option>
+                <option value="COLD">COLD</option>
+                <option value="NOT ANALYZED">NOT ANALYZED</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] text-neutral-500 mb-1">SORT FIELD</label>
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value)}
+                className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+              >
+                <option value="CREATED DATE">CREATED DATE</option>
+                <option value="NAME">NAME</option>
+                <option value="AI SCORE">AI SCORE</option>
+                <option value="COMPANY">COMPANY</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] text-neutral-500 mb-1">SORT ORDER</label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
+              >
+                <option value="DESCENDING">DESCENDING</option>
+                <option value="ASCENDING">ASCENDING</option>
+              </select>
+            </div>
+          </div>
         </div>
 
-        {/* Filters Controls Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2 text-xs font-mono font-bold uppercase border-t border-neutral-200">
-          {/* STATUS FILTER */}
-          <div>
-            <label className="block text-[9px] text-neutral-500 mb-1">STATUS</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
-            >
-              <option value="ALL STATUSES">ALL STATUSES</option>
-              <option value="NEW">NEW</option>
-              <option value="CONTACTED">CONTACTED</option>
-              <option value="QUALIFIED">QUALIFIED</option>
-              <option value="CONVERTED">CONVERTED</option>
-              <option value="LOST">LOST</option>
-            </select>
-          </div>
+        {/* Table View */}
+        <div className="overflow-x-auto border-t border-black">
+          {loading ? (
+            <div className="p-12 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-[#12B76A]" /> Fetching workspace leads from Supabase...
+            </div>
+          ) : leads.length === 0 ? (
+            <div className="p-12 text-center space-y-3">
+              <h3 className="text-xl font-black uppercase text-black">NO LEADS AVAILABLE</h3>
+              <p className="text-xs text-neutral-600 font-mono max-w-sm mx-auto">
+                No lead records found in your organization workspace. Create a lead to begin AI intelligence analysis.
+              </p>
+              <div>
+                <button onClick={() => setShowCreateModal(true)} className="btn-pill-primary text-xs cursor-pointer">
+                  + CREATE FIRST LEAD
+                </button>
+              </div>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#F1F2F3] border-b border-black text-xs font-mono font-bold uppercase tracking-wider text-black">
+                  <th className="p-3">NAME &amp; CONTACT</th>
+                  <th className="p-3">COMPANY &amp; INDUSTRY</th>
+                  <th className="p-3">STATUS</th>
+                  <th className="p-3">PRIORITY</th>
+                  <th className="p-3">AI SCORE</th>
+                  <th className="p-3">SOURCE</th>
+                  <th className="p-3">CREATED</th>
+                  <th className="p-3 text-right">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200 text-xs font-medium">
+                {leads.map((lead) => {
+                  const isSelected = lead.id === selectedLeadId;
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={`transition-colors ${
+                        isSelected ? "bg-[#12B76A]/10 border-l-4 border-l-[#12B76A]" : "hover:bg-[#F1F2F3]/60"
+                      }`}
+                    >
+                      <td className="p-3 font-mono">
+                        <div className="font-bold text-black uppercase">{lead.name}</div>
+                        <div className="text-[10px] text-neutral-500 lowercase">{lead.email || "no-email@provided"}</div>
+                      </td>
 
-          {/* PRIORITY FILTER */}
-          <div>
-            <label className="block text-[9px] text-neutral-500 mb-1">PRIORITY</label>
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
-            >
-              <option value="ALL PRIORITIES">ALL PRIORITIES</option>
-              <option value="LOW">LOW</option>
-              <option value="NORMAL">NORMAL</option>
-              <option value="HIGH">HIGH</option>
-              <option value="URGENT">URGENT</option>
-            </select>
-          </div>
+                      <td className="p-3 font-mono">
+                        <div className="font-bold text-black">{lead.company || "Independent Lead"}</div>
+                        <div className="text-[10px] text-neutral-500 uppercase">{lead.industry || "General"}</div>
+                      </td>
 
-          {/* AI CLASSIFICATION (HEAT) */}
-          <div>
-            <label className="block text-[9px] text-neutral-500 mb-1">AI CLASSIFICATION</label>
-            <select
-              value={heatFilter}
-              onChange={(e) => setHeatFilter(e.target.value)}
-              className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
-            >
-              <option value="ALL HEAT LEVELS">ALL HEAT LEVELS</option>
-              <option value="HOT">HOT</option>
-              <option value="WARM">WARM</option>
-              <option value="COLD">COLD</option>
-              <option value="NOT ANALYZED">NOT ANALYZED</option>
-            </select>
-          </div>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 font-bold text-[10px] uppercase tracking-wider sharp-border ${
+                            lead.status === "NEW"
+                              ? "bg-[#20C8E8] text-black"
+                              : lead.status === "QUALIFIED"
+                              ? "bg-[#12B76A] text-white"
+                              : lead.status === "CONVERTED"
+                              ? "bg-[#F4B62A] text-black"
+                              : "bg-neutral-200 text-black"
+                          }`}
+                        >
+                          {lead.status}
+                        </span>
+                      </td>
 
-          {/* SORT FIELD */}
-          <div>
-            <label className="block text-[9px] text-neutral-500 mb-1">SORT FIELD</label>
-            <select
-              value={sortField}
-              onChange={(e) => setSortField(e.target.value)}
-              className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
-            >
-              <option value="CREATED DATE">CREATED DATE</option>
-              <option value="NAME">NAME</option>
-              <option value="AI SCORE">AI SCORE</option>
-              <option value="COMPANY">COMPANY</option>
-            </select>
-          </div>
+                      <td className="p-3 font-mono text-xs font-bold uppercase text-neutral-800">
+                        {lead.priority || "NORMAL"}
+                      </td>
 
-          {/* SORT ORDER */}
-          <div>
-            <label className="block text-[9px] text-neutral-500 mb-1">SORT ORDER</label>
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-              className="w-full p-2 border border-black bg-[#F1F2F3] text-xs font-bold uppercase focus:outline-none sharp-border cursor-pointer"
-            >
-              <option value="DESCENDING">DESCENDING</option>
-              <option value="ASCENDING">ASCENDING</option>
-            </select>
-          </div>
+                      <td className="p-3 font-mono">
+                        {lead.score > 0 || lead.heat_level === "HOT" ? (
+                          <span className="inline-flex items-center gap-1 bg-[#12B76A] text-white px-2 py-0.5 font-bold text-[10px] sharp-border">
+                            <Flame className="w-3 h-3 fill-current" /> {lead.score}/100
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase">
+                            {lead.heat_level || "NOT ANALYZED"}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="p-3 font-mono text-xs uppercase text-neutral-700">
+                        {lead.source || "WEBSITE"}
+                      </td>
+
+                      <td className="p-3 font-mono text-[11px] text-neutral-500">
+                        {new Date(lead.created_at).toLocaleDateString()}
+                      </td>
+
+                      <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                        <button
+                          onClick={() => {
+                            populateWorkspaceLead(lead);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className="p-1.5 border border-black bg-white hover:bg-neutral-100 sharp-border cursor-pointer inline-flex items-center justify-center"
+                          title="Select Lead & Load AI Intelligence"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-black" />
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenConversation(lead)}
+                          className="p-1.5 border border-black bg-white hover:bg-[#12B76A] hover:text-white sharp-border cursor-pointer inline-flex items-center justify-center"
+                          title="Open Conversation 2.0"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => setEditingLead(lead)}
+                          className="p-1.5 border border-black bg-white hover:bg-neutral-100 sharp-border cursor-pointer inline-flex items-center justify-center"
+                          title="Edit Lead"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-black" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteLead(lead.id, lead.name)}
+                          className="p-1.5 border border-black bg-white hover:bg-red-600 hover:text-white sharp-border cursor-pointer inline-flex items-center justify-center"
+                          title="Delete Lead"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-600 hover:text-white" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      {/* LEADS TABLE — MATCHING SCREENSHOT 1 EXACTLY */}
-      <div className="bg-white sharp-border overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin text-[#12B76A]" /> Fetching workspace leads from Supabase...
-          </div>
-        ) : leads.length === 0 ? (
-          <div className="p-12 text-center space-y-4">
-            <div className="w-12 h-12 bg-[#F1F2F3] border border-black flex items-center justify-center mx-auto text-neutral-400 font-mono font-bold text-lg">
-              0
+      {/* RAW JSON MODAL */}
+      {showRawJsonModal && activeIntelligence && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white sharp-border max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-black pb-3">
+              <h3 className="text-lg font-black uppercase text-black flex items-center gap-2">
+                <Code className="w-4 h-4 text-[#12B76A]" /> RAW ZOD-VALIDATED AI JSON RESPONSE
+              </h3>
+              <X className="w-5 h-5 cursor-pointer text-black hover:opacity-70" onClick={() => setShowRawJsonModal(false)} />
             </div>
-            <h2 className="text-2xl font-black uppercase tracking-tight text-black">
-              NO LEADS YET
-            </h2>
-            <p className="text-xs text-neutral-600 max-w-sm mx-auto">
-              No real lead records found in your organization workspace. Click below to add your first opportunity.
-            </p>
-            <div>
+
+            <pre className="p-4 bg-black text-[#12B76A] font-mono text-xs overflow-auto flex-1 sharp-border">
+              {JSON.stringify(activeIntelligence, null, 2)}
+            </pre>
+
+            <div className="pt-2 text-right">
               <button
-                onClick={() => setShowCreateModal(true)}
-                className="btn-pill-primary text-xs cursor-pointer"
+                onClick={() => setShowRawJsonModal(false)}
+                className="px-6 py-2 border border-black bg-[#F1F2F3] text-xs font-mono font-bold uppercase sharp-border cursor-pointer"
               >
-                + CREATE NEW LEAD
+                CLOSE
               </button>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#F1F2F3] border-b border-black text-xs font-mono font-bold uppercase tracking-wider text-black">
-                    <th className="p-4">NAME & CONTACT</th>
-                    <th className="p-4">COMPANY & INDUSTRY</th>
-                    <th className="p-4">STATUS</th>
-                    <th className="p-4">PRIORITY</th>
-                    <th className="p-4">AI SCORE</th>
-                    <th className="p-4">SOURCE</th>
-                    <th className="p-4">CREATED</th>
-                    <th className="p-4 text-right">ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-200 text-xs font-medium">
-                  {leads.map((lead) => {
-                    const isHighlighted = lead.id === highlightLeadId;
-                    return (
-                      <tr
-                        key={lead.id}
-                        className={`transition-colors ${
-                          isHighlighted ? "bg-[#12B76A]/10 border-l-4 border-l-[#12B76A]" : "hover:bg-[#F1F2F3]/60"
-                        }`}
-                      >
-                        {/* NAME & CONTACT */}
-                        <td className="p-4 font-mono">
-                          <div className="font-bold text-black uppercase">{lead.name}</div>
-                          <div className="text-[10px] text-neutral-500 lowercase">{lead.email || "no-email@provided"}</div>
-                          <div className="text-[10px] text-neutral-400">{lead.phone || ""}</div>
-                        </td>
+        </div>
+      )}
 
-                        {/* COMPANY & INDUSTRY */}
-                        <td className="p-4 font-mono">
-                          <div className="font-bold text-black">{lead.company || "Independent Lead"}</div>
-                          <div className="text-[10px] text-neutral-500 uppercase">{lead.industry || "General"}</div>
-                        </td>
-
-                        {/* STATUS */}
-                        <td className="p-4">
-                          <span
-                            className={`px-2 py-0.5 font-bold text-[10px] uppercase tracking-wider sharp-border ${
-                              lead.status === "NEW"
-                                ? "bg-[#20C8E8] text-black"
-                                : lead.status === "QUALIFIED" || lead.status === "HOT"
-                                ? "bg-[#12B76A] text-white"
-                                : lead.status === "CONVERTED"
-                                ? "bg-[#F4B62A] text-black"
-                                : "bg-neutral-200 text-black"
-                            }`}
-                          >
-                            {lead.status}
-                          </span>
-                        </td>
-
-                        {/* PRIORITY */}
-                        <td className="p-4 font-mono text-xs font-bold uppercase text-neutral-800">
-                          {lead.priority || "NORMAL"}
-                        </td>
-
-                        {/* AI SCORE */}
-                        <td className="p-4 font-mono">
-                          {lead.score > 0 || lead.heat_level === "HOT" ? (
-                            <span className="inline-flex items-center gap-1 bg-[#12B76A] text-white px-2 py-0.5 font-bold text-[10px] sharp-border">
-                              <Flame className="w-3 h-3 fill-current" /> {lead.score}/100
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-neutral-400 uppercase">
-                              {lead.heat_level || "NOT ANALYZED"}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* SOURCE */}
-                        <td className="p-4 font-mono text-xs uppercase text-neutral-700">
-                          {lead.source || "WEBSITE"}
-                        </td>
-
-                        {/* CREATED */}
-                        <td className="p-4 font-mono text-[11px] text-neutral-500">
-                          {new Date(lead.created_at).toLocaleDateString()}
-                        </td>
-
-                        {/* ACTIONS */}
-                        <td className="p-4 text-right space-x-1 whitespace-nowrap">
-                          <button
-                            onClick={() => handleAnalyzeLead(lead)}
-                            disabled={analyzingLeadId === lead.id}
-                            className="p-1.5 border border-black bg-white hover:bg-neutral-100 sharp-border cursor-pointer inline-flex items-center justify-center"
-                            title="Analyze with Qwen AI"
-                          >
-                            {analyzingLeadId === lead.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#12B76A]" />
-                            ) : (
-                              <Eye className="w-3.5 h-3.5 text-black" />
-                            )}
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenConversation(lead)}
-                            className="p-1.5 border border-black bg-white hover:bg-[#12B76A] hover:text-white sharp-border cursor-pointer inline-flex items-center justify-center"
-                            title="Open Conversation 2.0"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => setEditingLead(lead)}
-                            className="p-1.5 border border-black bg-white hover:bg-neutral-100 sharp-border cursor-pointer inline-flex items-center justify-center"
-                            title="Edit Lead"
-                          >
-                            <Edit2 className="w-3.5 h-3.5 text-black" />
-                          </button>
-
-                          <button
-                            onClick={() => handleDeleteLead(lead.id, lead.name)}
-                            className="p-1.5 border border-black bg-white hover:bg-red-600 hover:text-white sharp-border cursor-pointer inline-flex items-center justify-center"
-                            title="Delete Lead"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-red-600 hover:text-white" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* PAGINATION FOOTER — Shows accurate real count from Supabase */}
-            <div className="p-4 bg-[#F1F2F3] border-t border-black flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono font-bold uppercase text-black">
-              <div>
-                {leads.length === 1
-                  ? "SHOWING 1 LEAD"
-                  : `SHOWING ${leads.length} LEADS`}
-                {(search ||
-                  statusFilter !== "ALL STATUSES" ||
-                  priorityFilter !== "ALL PRIORITIES" ||
-                  heatFilter !== "ALL HEAT LEVELS") && (
-                  <span className="ml-2 text-neutral-500 font-normal">(FILTERED)</span>
-                )}
-              </div>
-
-              <div className="text-[10px] text-neutral-500 font-normal">
-                ALL RESULTS LOADED · REAL-TIME FROM SUPABASE
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* CREATE NEW LEAD MODAL — MATCHING SCREENSHOT 2 EXACTLY */}
+      {/* CREATE NEW LEAD MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white sharp-border max-w-2xl w-full p-6 space-y-5 my-8">
-            {/* Header Box */}
             <div className="flex items-center justify-between border-b border-black pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-[#12B76A] text-white sharp-border flex items-center justify-center font-bold">
@@ -641,7 +1010,6 @@ export default function LeadsManagementPage() {
             </div>
 
             <form onSubmit={handleCreateLead} className="space-y-4 text-xs font-mono">
-              {/* Row 1: LEAD NAME * & EMAIL ADDRESS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold uppercase mb-1 flex items-center gap-1">
@@ -671,7 +1039,6 @@ export default function LeadsManagementPage() {
                 </div>
               </div>
 
-              {/* Row 2: PHONE NUMBER & COMPANY NAME */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold uppercase mb-1 flex items-center gap-1">
@@ -700,7 +1067,6 @@ export default function LeadsManagementPage() {
                 </div>
               </div>
 
-              {/* Row 3: INDUSTRY, SOURCE, BUDGET (₹) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-bold uppercase mb-1 flex items-center gap-1">
@@ -738,13 +1104,12 @@ export default function LeadsManagementPage() {
                     type="text"
                     value={budget}
                     onChange={(e) => setBudget(e.target.value)}
-                    placeholder="e.g. 150000"
+                    placeholder="e.g. 200000"
                     className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold focus:outline-none focus:bg-white sharp-border"
                   />
                 </div>
               </div>
 
-              {/* Row 4: INITIAL STATUS & PRIORITY */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold uppercase mb-1">INITIAL STATUS</label>
@@ -776,7 +1141,6 @@ export default function LeadsManagementPage() {
                 </div>
               </div>
 
-              {/* Row 5: STATED REQUIREMENT */}
               <div>
                 <label className="block font-bold uppercase mb-1 flex items-center gap-1">
                   <FileText className="w-3.5 h-3.5 text-neutral-500" /> STATED REQUIREMENT
@@ -790,7 +1154,6 @@ export default function LeadsManagementPage() {
                 />
               </div>
 
-              {/* Row 6: INBOUND INQUIRY MESSAGE / NOTES */}
               <div>
                 <label className="block font-bold uppercase mb-1 flex items-center gap-1">
                   <MessageSquare className="w-3.5 h-3.5 text-neutral-500" /> INBOUND INQUIRY MESSAGE / NOTES
@@ -804,7 +1167,6 @@ export default function LeadsManagementPage() {
                 />
               </div>
 
-              {/* Modal Buttons */}
               <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -813,11 +1175,7 @@ export default function LeadsManagementPage() {
                 >
                   CANCEL
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="btn-pill-primary text-xs cursor-pointer"
-                >
+                <button type="submit" disabled={submitting} className="btn-pill-primary text-xs cursor-pointer">
                   {submitting ? "CREATING..." : "+ CREATE LEAD"}
                 </button>
               </div>

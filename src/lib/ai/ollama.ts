@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export interface HotLeadResult {
   result: boolean;
   confidence: number;
@@ -25,6 +27,33 @@ export interface LeadIntelligenceOutput {
   lead_qualification: QualificationResult;
   modelUsed: string;
 }
+
+export interface StructuredLeadIntelligence {
+  lead_score: number;
+  classification: "HOT" | "WARM" | "COLD" | "SPAM";
+  urgency: "HIGH" | "MEDIUM" | "LOW";
+  confidence: number;
+  recommended_action: string;
+  detected_intent: string;
+  positive_buying_signals: string[];
+  risks: string[];
+  evidence: string[];
+  modelUsed: string;
+  latency_ms: number;
+  analyzed_at: string;
+}
+
+export const LeadIntelligenceSchema = z.object({
+  lead_score: z.number().int().min(0).max(100),
+  classification: z.enum(["HOT", "WARM", "COLD", "SPAM"]),
+  urgency: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  confidence: z.number().int().min(0).max(100),
+  recommended_action: z.string().min(1),
+  detected_intent: z.string().min(1),
+  positive_buying_signals: z.array(z.string()),
+  risks: z.array(z.string()),
+  evidence: z.array(z.string()),
+});
 
 export interface ReadinessItem {
   score: number;
@@ -555,3 +584,178 @@ Analyze the website content strictly and generate the structured JSON review.`;
     throw new Error(err?.message || "Ollama AI service is currently unavailable.");
   }
 }
+
+/**
+ * Analyzes structured B2B inbound lead payload using Ollama + Qwen model.
+ * Returns Zod-validated Lead Intelligence matching Requirement 8 & 9.
+ */
+export async function analyzeStructuredLeadIntelligenceWithQwen(payload: {
+  contactName: string;
+  companyName?: string;
+  email?: string;
+  phone?: string;
+  industry?: string;
+  budget?: string;
+  statedRequirement?: string;
+  inboundMessage?: string;
+}): Promise<StructuredLeadIntelligence> {
+  const startTime = Date.now();
+  const baseUrl = await getOllamaBaseUrl();
+  const modelName = await detectQwenModel(baseUrl);
+
+  const systemPrompt = `You are Rev AI's Lead Intelligence Agent.
+
+Analyze the supplied business lead information.
+
+Your task is to determine:
+1. Lead score from 0-100
+2. Lead classification
+3. Urgency
+4. Confidence
+5. Recommended next action
+6. Detected buying intent
+7. Positive buying signals
+8. Risks or friction points
+9. Reasoning/evidence based ONLY on the supplied lead information
+
+Classification must be exactly one of: HOT, WARM, COLD, SPAM
+Urgency must be exactly one of: HIGH, MEDIUM, LOW
+
+Return ONLY valid JSON matching this exact structure:
+{
+  "lead_score": 85,
+  "classification": "HOT",
+  "urgency": "HIGH",
+  "confidence": 100,
+  "recommended_action": "CONTACT_IMMEDIATELY",
+  "detected_intent": "Urgent need for sales automation and faster lead qualification workflow implementation.",
+  "positive_buying_signals": [
+    "Explicitly stated urgent requirement",
+    "Defined budget available",
+    "Clear use case identified",
+    "Specific goal identified"
+  ],
+  "risks": [],
+  "evidence": []
+}
+
+Rules:
+- lead_score must be an integer between 0 and 100.
+- confidence must be an integer between 0 and 100.
+- positive_buying_signals must be an array of strings.
+- risks must be an array of strings.
+- evidence must contain only evidence supported by the supplied lead information.
+- Never invent budget, company information, intent, timeline, or requirements not implied by the input payload.`;
+
+  const userPrompt = `INBOUND LEAD PAYLOAD:
+- Contact Name: ${payload.contactName || "Unknown"}
+- Company: ${payload.companyName || "Not specified"}
+- Email: ${payload.email || "Not specified"}
+- Phone: ${payload.phone || "Not specified"}
+- Industry Sector: ${payload.industry || "General"}
+- Estimated Budget (₹): ${payload.budget || "Not specified"}
+- Stated Requirement: ${payload.statedRequirement || "None stated"}
+- Inbound Message / Customer Query: "${payload.inboundMessage || "None provided"}"
+
+Analyze the lead and generate structured intelligence in JSON format.`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelName,
+        prompt: `${systemPrompt}\n\n${userPrompt}`,
+        stream: false,
+        format: "json",
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API error (${response.status})`);
+    }
+
+    const data = await response.json();
+    const rawResponseText = data.response || "{}";
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawResponseText);
+    } catch {
+      const match = rawResponseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        throw new Error("Invalid JSON returned from Qwen AI model");
+      }
+    }
+
+    // Sanitize values before Zod validation
+    const rawScore = Number(parsed?.lead_score ?? 75);
+    const score = Math.min(100, Math.max(0, Math.round(isNaN(rawScore) ? 75 : rawScore)));
+
+    const rawConf = Number(parsed?.confidence ?? 90);
+    const confidence = Math.min(100, Math.max(0, Math.round(isNaN(rawConf) ? 90 : rawConf)));
+
+    const validClassifications = ["HOT", "WARM", "COLD", "SPAM"];
+    const classification: "HOT" | "WARM" | "COLD" | "SPAM" =
+      validClassifications.includes(parsed?.classification?.toUpperCase())
+        ? parsed.classification.toUpperCase()
+        : score >= 80
+        ? "HOT"
+        : score >= 50
+        ? "WARM"
+        : "COLD";
+
+    const validUrgencies = ["HIGH", "MEDIUM", "LOW"];
+    const urgency: "HIGH" | "MEDIUM" | "LOW" =
+      validUrgencies.includes(parsed?.urgency?.toUpperCase())
+        ? parsed.urgency.toUpperCase()
+        : score >= 80
+        ? "HIGH"
+        : "MEDIUM";
+
+    const positive_buying_signals = Array.isArray(parsed?.positive_buying_signals)
+      ? parsed.positive_buying_signals.map(String).filter(Boolean)
+      : payload.statedRequirement
+      ? [`Requirement stated: ${payload.statedRequirement}`]
+      : ["Lead inquiry received"];
+
+    const risks = Array.isArray(parsed?.risks)
+      ? parsed.risks.map(String).filter(Boolean)
+      : [];
+
+    const evidence = Array.isArray(parsed?.evidence)
+      ? parsed.evidence.map(String).filter(Boolean)
+      : [];
+
+    const candidate = {
+      lead_score: score,
+      classification,
+      urgency,
+      confidence,
+      recommended_action: String(parsed?.recommended_action || "CONTACT_IMMEDIATELY").toUpperCase().replace(/\s+/g, "_"),
+      detected_intent: String(parsed?.detected_intent || payload.statedRequirement || "B2B Sales Inquiry"),
+      positive_buying_signals,
+      risks,
+      evidence,
+    };
+
+    // Zod strict validation
+    const validated = LeadIntelligenceSchema.parse(candidate);
+    const latency_ms = Date.now() - startTime;
+
+    return {
+      ...validated,
+      modelUsed: modelName,
+      latency_ms,
+      analyzed_at: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      throw new Error(`AI Result Validation Error: ${err.errors.map((e) => e.message).join(", ")}`);
+    }
+    throw new Error(err?.message || "Ollama AI service is currently unavailable.");
+  }
+}
+
