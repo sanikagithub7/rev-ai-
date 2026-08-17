@@ -181,7 +181,7 @@ export default function MeetingsPage() {
         }
       } else if (data.meeting) {
         setMeetings((prev) => [data.meeting, ...prev]);
-        setSuccessMsg(`✅ Real Google Calendar event & Google Meet link created! Link: ${data.meetUrl}`);
+        setSuccessMsg(`✓ Meeting Scheduled Successfully! Google Calendar Event & Google Meet Created. Meet Link: ${data.meetUrl}`);
         setShowModal(false);
         setTitle("Rev AI Product Demo");
         setParticipantName("");

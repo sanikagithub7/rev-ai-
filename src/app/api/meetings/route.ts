@@ -4,6 +4,7 @@ import {
   createGoogleCalendarEventWithMeet,
   getGoogleCalendarConnection,
 } from "@/lib/google/calendar";
+import { sendMeetingNotifications } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       title,
       participantName,
       participantEmail,
+      additionalAttendees = [],
       date,
       startTime,
       endTime,
@@ -201,11 +203,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, code: "SUPABASE_PERSISTENCE_FAILED", error: insertErr.message }, { status: 500 });
     }
 
+    // 6. Send Email Notifications (Host + Participant + Attendees)
+    const hostEmail = user?.email || "sanika@revai.io";
+    const hostName = user?.user_metadata?.full_name || "Sanika Wazarkar";
+
+    const emailRes = await sendMeetingNotifications({
+      meetingTitle: title.trim(),
+      hostName,
+      hostEmail,
+      participantName: finalProspectName,
+      participantEmail: participantEmail.trim(),
+      additionalAttendees: Array.isArray(additionalAttendees) ? additionalAttendees : [],
+      date,
+      startTime,
+      endTime,
+      timezone,
+      durationMinutes,
+      description: description?.trim(),
+      googleMeetUrl: googleRes.meetUrl,
+      calendarUrl: googleRes.htmlLink,
+    });
+
     return NextResponse.json({
       success: true,
       meeting: insertedMeeting,
       meetUrl: googleRes.meetUrl,
       calendarUrl: googleRes.htmlLink,
+      notifications: emailRes.notifications,
+      warning: emailRes.warning || undefined,
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, code: "MEETING_CREATION_FAILED", error: err.message || "Failed to create meeting." }, { status: 500 });

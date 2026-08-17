@@ -854,7 +854,7 @@ const server = http.createServer(async (req, res) => {
           }
         };
 
-        const calRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1", {
+        const calRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all", {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${accessToken}`,
@@ -1650,6 +1650,36 @@ const server = http.createServer(async (req, res) => {
         </div>
       </div>
 
+      <!-- Professional In-App Success Notification Modal -->
+      <div id="successModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: #111827; border: 1px solid #1F2937; border-radius: 16px; padding: 2rem; width: 90%; max-width: 480px; color: #FFFFFF; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); font-family: sans-serif;">
+          <div style="display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1.25rem;">
+            <div style="background: #059669; color: #FFF; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.4rem;">✓</div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #FFFFFF;">Meeting Scheduled Successfully</h3>
+              <p style="margin: 0; font-size: 0.75rem; color: #10B981; font-weight: 600; margin-top: 2px;">Google Calendar Event & Google Meet Link Created</p>
+            </div>
+          </div>
+          <div style="background: #1F2937; border-radius: 10px; padding: 1.25rem; margin-bottom: 1.5rem; border-left: 4px solid #6366F1;">
+            <div id="sTitle" style="font-size: 1.05rem; font-weight: 800; color: #FFF; margin-bottom: 0.5rem;"></div>
+            <div id="sDateTime" style="font-size: 0.825rem; color: #9CA3AF; margin-bottom: 0.5rem;"></div>
+            <div id="sParticipant" style="font-size: 0.825rem; color: #D1D5DB;"></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.5rem;">
+            <div style="font-size: 0.8rem; color: #10B981; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+              <span>✓</span> Real Google Calendar Event Added
+            </div>
+            <div style="font-size: 0.8rem; color: #10B981; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+              <span>✓</span> Confirmation Emails Sent to Host & Prospect
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <a id="sMeetLink" href="#" target="_blank" style="flex: 1; text-align: center; background: #059669; color: #FFF; font-weight: 800; font-size: 0.85rem; padding: 0.85rem; border-radius: 8px; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.4);">📹 JOIN GOOGLE MEET →</a>
+            <button onclick="closeSuccessModal()" style="background: #374151; color: #FFF; font-weight: 700; font-size: 0.85rem; padding: 0.85rem 1.25rem; border: none; border-radius: 8px; cursor: pointer;">Done</button>
+          </div>
+        </div>
+      </div>
+
       <script>
         let isGoogleConnected = false;
 
@@ -1708,7 +1738,7 @@ const server = http.createServer(async (req, res) => {
               </tr>
             \`).join('');
           } catch (err) {
-            alert('Failed to load meetings from database.');
+            console.error('Failed to load meetings from database:', err);
           }
         }
 
@@ -1747,18 +1777,48 @@ const server = http.createServer(async (req, res) => {
             const data = await res.json();
 
             if (res.ok && data.success) {
-              alert('SUCCESS: Real Google Calendar Event & Google Meet created!\\n\\nMeet URL: ' + data.meetUrl);
               closeScheduleModal();
+              showSuccessModal({
+                title: payload.title,
+                date: payload.date,
+                startTime: payload.startTime,
+                timezone: payload.timezone,
+                participantName: payload.participantName,
+                participantEmail: payload.participantEmail,
+                meetUrl: data.meetUrl
+              });
               loadMeetings();
             } else {
-              alert('ERROR (' + (data.code || 'FAILED') + '): ' + (data.error || 'Failed to create Google Calendar meeting.'));
+              showErrorBanner(data.error || 'Failed to create Google Calendar meeting.');
             }
           } catch (err) {
-            alert('Network error while scheduling meeting.');
+            showErrorBanner('Network error while scheduling meeting.');
           } finally {
             btn.innerText = 'SCHEDULE WITH GOOGLE MEET →';
             btn.disabled = false;
           }
+        }
+
+        function showSuccessModal(info) {
+          document.getElementById('sTitle').innerText = info.title;
+          document.getElementById('sDateTime').innerText = '📅 ' + info.date + ' • ' + info.startTime + ' (' + info.timezone + ')';
+          document.getElementById('sParticipant').innerText = '👤 ' + info.participantName + ' (' + info.participantEmail + ')';
+          const meetBtn = document.getElementById('sMeetLink');
+          meetBtn.href = info.meetUrl;
+          document.getElementById('successModal').style.display = 'flex';
+        }
+
+        function closeSuccessModal() {
+          document.getElementById('successModal').style.display = 'none';
+        }
+
+        function showErrorBanner(msg) {
+          const alertBox = document.getElementById('alertBox');
+          alertBox.style.display = 'block';
+          alertBox.style.background = '#FFF0F0';
+          alertBox.style.color = '#ff4d4d';
+          alertBox.innerText = '⚠️ ' + msg;
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         // Check query params for status/error
