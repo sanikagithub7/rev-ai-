@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search,
   RefreshCw,
-  Plus,
   Eye,
   Edit2,
   Trash2,
@@ -21,9 +20,7 @@ import {
   MessageSquare,
   FileText,
   DollarSign,
-  Sparkles,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 interface LeadRecord {
   id: string;
@@ -83,10 +80,7 @@ export default function LeadsManagementPage() {
 
   // Edit Modal state
   const [editingLead, setEditingLead] = useState<LeadRecord | null>(null);
-  const [viewingLead, setViewingLead] = useState<LeadRecord | null>(null);
   const [analyzingLeadId, setAnalyzingLeadId] = useState<string | null>(null);
-
-  const supabase = createClient();
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -246,15 +240,29 @@ export default function LeadsManagementPage() {
   }
 
   // Handle AI Lead Analysis with Ollama Qwen
+  // IMPORTANT: Passes leadId so the analyze route UPDATES the existing lead
+  // instead of creating a duplicate. Lead count must stay the same after analysis.
   async function handleAnalyzeLead(lead: LeadRecord) {
     setAnalyzingLeadId(lead.id);
     setError(null);
     try {
-      const targetUrl = lead.metadata?.website_url || (lead.company ? `https://${lead.company.toLowerCase().replace(/\s+/g, "")}.com` : `https://google.com`);
+      // Build a target URL from metadata (if previous analysis stored one)
+      // or infer from company name — fallback to empty so analyze route rejects gracefully
+      const targetUrl =
+        (lead.metadata?.website_url as string) ||
+        (lead.company ? `https://${lead.company.toLowerCase().replace(/\s+/g, "")}.com` : "");
+
+      if (!targetUrl) {
+        setError(`No website URL available for "${lead.name}". Add a company to enable AI analysis.`);
+        setAnalyzingLeadId(null);
+        return;
+      }
+
       const res = await fetch("/api/leads/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          leadId: lead.id, // required — ensures UPDATE not INSERT
           url: targetUrl,
           name: lead.name,
           email: lead.email,
@@ -265,13 +273,13 @@ export default function LeadsManagementPage() {
       const data = await res.json();
       if (res.ok && data.analysis) {
         setToast(`AI Analysis completed for "${lead.name}"!`);
-        fetchLeads();
+        fetchLeads(); // refresh to show updated score/heat_level
         setTimeout(() => setToast(null), 4000);
       } else {
         setError(data.error || "AI Analysis unavailable.");
       }
     } catch {
-      setError("AI Analysis unavailable.");
+      setError("AI Analysis unavailable. Check Ollama/Qwen connection.");
     } finally {
       setAnalyzingLeadId(null);
     }
@@ -588,22 +596,22 @@ export default function LeadsManagementPage() {
               </table>
             </div>
 
-            {/* PAGINATION FOOTER — MATCHING SCREENSHOT 1 EXACTLY */}
+            {/* PAGINATION FOOTER — Shows accurate real count from Supabase */}
             <div className="p-4 bg-[#F1F2F3] border-t border-black flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono font-bold uppercase text-black">
               <div>
-                SHOWING PAGE 1 OF 1 ({leads.length} TOTAL LEADS)
+                {leads.length === 1
+                  ? "SHOWING 1 LEAD"
+                  : `SHOWING ${leads.length} LEADS`}
+                {(search ||
+                  statusFilter !== "ALL STATUSES" ||
+                  priorityFilter !== "ALL PRIORITIES" ||
+                  heatFilter !== "ALL HEAT LEVELS") && (
+                  <span className="ml-2 text-neutral-500 font-normal">(FILTERED)</span>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <button disabled className="px-3 py-1 bg-neutral-200 text-neutral-400 sharp-border cursor-not-allowed">
-                  &lt; Previous
-                </button>
-                <span className="px-3 py-1 bg-white border border-black sharp-border">
-                  1 / 1
-                </span>
-                <button disabled className="px-3 py-1 bg-neutral-200 text-neutral-400 sharp-border cursor-not-allowed">
-                  Next &gt;
-                </button>
+              <div className="text-[10px] text-neutral-500 font-normal">
+                ALL RESULTS LOADED · REAL-TIME FROM SUPABASE
               </div>
             </div>
           </>

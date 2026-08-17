@@ -14,7 +14,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized. Please sign in." }, { status: 401 });
     }
 
-    // Get tenant context
+    // Get tenant context — always resolve org from session, never trust frontend
     const { data: member } = await supabase
       .from("organization_members")
       .select("organization_id")
@@ -27,10 +27,27 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { url, name, email, company } = body || {};
+    // leadId is required — we UPDATE the existing lead, never create a duplicate
+    const { leadId, url, name, email, company } = body || {};
+
+    if (!leadId || typeof leadId !== "string") {
+      return NextResponse.json({ error: "leadId is required for AI analysis." }, { status: 400 });
+    }
 
     if (!url || typeof url !== "string") {
       return NextResponse.json({ error: "Website URL is required for AI analysis." }, { status: 400 });
+    }
+
+    // Verify that the lead belongs to this user's organization (tenant isolation)
+    const { data: existingLead, error: leadFetchErr } = await supabase
+      .from("leads")
+      .select("id, organization_id")
+      .eq("id", leadId)
+      .eq("organization_id", member.organization_id)
+      .single();
+
+    if (leadFetchErr || !existingLead) {
+      return NextResponse.json({ error: "Lead not found or access denied." }, { status: 404 });
     }
 
     // 1. SSRF-Safe Server Scraping
@@ -41,7 +58,7 @@ export async function POST(request: Request) {
       }, { status: 422 });
     }
 
-    // 2. Ollama + Qwen Lead Analysis (Exactly 3 Results)
+    // 2. Ollama + Qwen Lead Analysis
     let aiResults;
     try {
       aiResults = await analyzeLeadWithQwen(url, scrapeRes.content);
@@ -51,10 +68,20 @@ export async function POST(request: Request) {
       }, { status: 503 });
     }
 
-    // 3. Save Lead & AI Results to Supabase
-    const leadName = name?.trim() || company?.trim() || url.replace(/^https?:\/\//, "").split("/")[0];
-    const score = aiResults.hot_lead.result ? Math.max(85, aiResults.hot_lead.confidence) : Math.round(aiResults.lead_qualification.confidence * 0.8);
-    const status = aiResults.hot_lead.result ? "HOT" : aiResults.lead_qualification.status === "QUALIFIED" ? "QUALIFIED" : "NEW";
+    // 3. Compute score and heat_level from AI results
+    const score = aiResults.hot_lead.result
+      ? Math.max(85, aiResults.hot_lead.confidence)
+      : Math.round(aiResults.lead_qualification.confidence * 0.8);
+
+    // Map AI result to heat_level (HOT / WARM / COLD)
+    let heat_level: string;
+    if (aiResults.hot_lead.result) {
+      heat_level = "HOT";
+    } else if (score >= 50) {
+      heat_level = "WARM";
+    } else {
+      heat_level = "COLD";
+    }
 
     const metadata = {
       website_url: url,
@@ -65,26 +92,29 @@ export async function POST(request: Request) {
       analyzed_at: new Date().toISOString(),
     };
 
-    const { data: insertedLead, error: insertErr } = await supabase
+    // 4. UPDATE the existing lead — NEVER insert a new one
+    const { data: updatedLead, error: updateErr } = await supabase
       .from("leads")
-      .insert({
-        organization_id: member.organization_id,
-        name: leadName,
-        email: email?.trim() || null,
-        company: company?.trim() || url.replace(/^https?:\/\//, "").split("/")[0],
-        status,
+      .update({
         score,
+        heat_level,
         metadata,
       })
+      .eq("id", leadId)
+      .eq("organization_id", member.organization_id) // double-check org isolation
       .select()
       .single();
 
-    // Also record in ai_runs audit log
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    }
+
+    // 5. Record in ai_runs audit log
     await supabase.from("ai_runs").insert({
       organization_id: member.organization_id,
       type: "QWEN_LEAD_INTELLIGENCE",
       model: aiResults.modelUsed,
-      input: { website_url: url },
+      input: { website_url: url, lead_id: leadId },
       output: metadata,
       tokens: Math.round(scrapeRes.content.length / 4),
       status: "SUCCESS",
@@ -92,10 +122,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      lead: insertedLead,
+      lead: updatedLead,
       analysis: aiResults,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Unable to save data. Please try again." }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Unable to analyze lead. Please try again." }, { status: 500 });
   }
 }
