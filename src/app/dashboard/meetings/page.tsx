@@ -49,9 +49,24 @@ export default function MeetingsPage() {
 
   // Form state
   const [title, setTitle] = useState("Rev AI Product Demo");
-  const [participantName, setParticipantName] = useState("");
-  const [participantEmail, setParticipantEmail] = useState("");
+  const [participants, setParticipants] = useState<Array<{ name: string; email: string }>>([
+    { name: "Sanika", email: "wazarkarsanika20@gmail.com" },
+  ]);
   const [company, setCompany] = useState("");
+
+  const addParticipant = () => {
+    setParticipants((prev) => [...prev, { name: "", email: "" }]);
+  };
+
+  const removeParticipant = (index: number) => {
+    setParticipants((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateParticipant = (index: number, field: "name" | "email", value: string) => {
+    setParticipants((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, [field]: value } : p))
+    );
+  };
   const [date, setDate] = useState(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -148,14 +163,36 @@ export default function MeetingsPage() {
     setError(null);
     setSuccessMsg(null);
 
+    const validParticipants = participants.filter((p) => p.name.trim() && p.email.trim());
+    if (validParticipants.length === 0) {
+      setError("At least one valid participant name and email address is required.");
+      setSubmitting(false);
+      return;
+    }
+
+    const seenEmails = new Set<string>();
+    for (const p of validParticipants) {
+      const emailLower = p.email.trim().toLowerCase();
+      if (seenEmails.has(emailLower)) {
+        setError(`Duplicate participant email: ${emailLower}. Each participant must have a unique email address.`);
+        setSubmitting(false);
+        return;
+      }
+      seenEmails.add(emailLower);
+    }
+
+    const primaryParticipant = validParticipants[0];
+
     try {
       const res = await fetch("/api/meetings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          participantName: participantName.trim(),
-          participantEmail: participantEmail.trim(),
+          participantName: primaryParticipant.name.trim(),
+          participantEmail: primaryParticipant.email.trim(),
+          participants: validParticipants.map((p) => ({ name: p.name.trim(), email: p.email.trim() })),
+          additionalAttendees: validParticipants.map((p) => p.email.trim()),
           company: company.trim(),
           date: date.trim(),
           startTime: startTime.trim(),
@@ -181,11 +218,10 @@ export default function MeetingsPage() {
         }
       } else if (data.meeting) {
         setMeetings((prev) => [data.meeting, ...prev]);
-        setSuccessMsg(`✓ Meeting Scheduled Successfully! Google Calendar Event & Google Meet Created. Meet Link: ${data.meetUrl}`);
+        setSuccessMsg(`✓ Meeting Scheduled Successfully! Google Calendar Event & Google Meet Created for ${validParticipants.length} participant(s). Meet Link: ${data.meetUrl}`);
         setShowModal(false);
         setTitle("Rev AI Product Demo");
-        setParticipantName("");
-        setParticipantEmail("");
+        setParticipants([{ name: "Sanika", email: "wazarkarsanika20@gmail.com" }]);
         setCompany("");
         setDescription("Demo of Rev AI B2B Sales Automation platform.");
       }
@@ -420,34 +456,50 @@ export default function MeetingsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                    Participant Name *
+              <div className="border border-black p-3 bg-[#F8F9FA] space-y-2 sharp-border">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black uppercase tracking-wider">
+                    Participants / Attendees *
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={participantName}
-                    onChange={(e) => setParticipantName(e.target.value)}
-                    placeholder="Sarah Connor"
-                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
-                  />
+                  <button
+                    type="button"
+                    onClick={addParticipant}
+                    className="bg-[#12B76A] text-white text-[10px] font-bold px-2 py-0.5 sharp-border uppercase"
+                  >
+                    + Add Participant
+                  </button>
                 </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                    Participant Email *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={participantEmail}
-                    onChange={(e) => setParticipantEmail(e.target.value)}
-                    placeholder="sarah@example.com"
-                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
-                  />
-                </div>
+                {participants.map((p, idx) => (
+                  <div key={idx} className="grid grid-cols-5 gap-1.5 items-center">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Name"
+                      value={p.name}
+                      onChange={(e) => updateParticipant(idx, "name", e.target.value)}
+                      className="col-span-2 p-1.5 border border-black bg-white text-xs font-bold sharp-border"
+                    />
+                    <input
+                      type="email"
+                      required
+                      placeholder="Email"
+                      value={p.email}
+                      onChange={(e) => updateParticipant(idx, "email", e.target.value)}
+                      className="col-span-2 p-1.5 border border-black bg-white text-xs font-bold sharp-border"
+                    />
+                    {participants.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeParticipant(idx)}
+                        className="bg-red-600 text-white text-[10px] font-bold p-1.5 sharp-border uppercase"
+                      >
+                        ✕
+                      </button>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
+                ))}
               </div>
 
               <div className="grid grid-cols-3 gap-2">

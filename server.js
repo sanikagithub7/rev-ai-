@@ -840,12 +840,17 @@ const server = http.createServer(async (req, res) => {
         }
 
         // 4. Create Google Calendar Event with Meet Link
+        const { participants = [] } = body;
+        const calAttendees = Array.isArray(participants) && participants.length > 0
+          ? participants.map(p => ({ email: p.email.trim(), displayName: (p.name || p.email).trim() }))
+          : [{ email: participantEmail.trim(), displayName: participantName.trim() }];
+
         const eventPayload = {
           summary: title.trim(),
           description: description?.trim() || `Sales Discovery Meeting with ${participantName.trim()} (${company || "Prospect"}).`,
           start: { dateTime: startIso.toISOString(), timeZone: timezone },
           end: { dateTime: endIso.toISOString(), timeZone: timezone },
-          attendees: [{ email: participantEmail.trim(), displayName: participantName.trim() }],
+          attendees: calAttendees,
           conferenceData: {
             createRequest: {
               requestId: `rev-meet-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1597,15 +1602,12 @@ const server = http.createServer(async (req, res) => {
               <input type="text" id="mTitle" value="Rev AI Product Demo" required />
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-              <div>
-                <label>PARTICIPANT NAME</label>
-                <input type="text" id="mParticipantName" placeholder="Sarah Connor" />
+            <div style="border: 1px solid #E5E7EB; border-radius: 8px; padding: 0.75rem; background: #F9FAFB;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <label style="font-weight: 800; font-size: 0.75rem; text-transform: uppercase; margin: 0;">PARTICIPANTS / ATTENDEES *</label>
+                <button type="button" onclick="addParticipantRow()" style="background: #12B76A; color: #FFF; border: none; border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.7rem; font-weight: 800; cursor: pointer;">+ ADD PARTICIPANT</button>
               </div>
-              <div>
-                <label>PARTICIPANT EMAIL *</label>
-                <input type="email" id="mParticipantEmail" placeholder="sarah@example.com" required />
-              </div>
+              <div id="participantRowsContainer" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
@@ -1742,7 +1744,39 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        let pCount = 0;
+
+        function addParticipantRow(name = '', email = '') {
+          pCount++;
+          const id = pCount;
+          const container = document.getElementById('participantRowsContainer');
+          if (!container) return;
+
+          const defaultName = id === 1 && !name ? 'Sanika' : name;
+          const defaultEmail = id === 1 && !email ? 'wazarkarsanika20@gmail.com' : email;
+
+          const div = document.createElement('div');
+          div.id = 'pRow_' + id;
+          div.className = 'participant-row';
+          div.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; align-items: center; background: #FFF; border: 1px solid #D1D5DB; border-radius: 6px; padding: 0.4rem 0.6rem;';
+
+          div.innerHTML = '<input type="text" class="p-name" placeholder="Name" value="' + defaultName + '" required style="padding: 0.35rem 0.5rem; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.8rem;" />' +
+            '<input type="email" class="p-email" placeholder="Email" value="' + defaultEmail + '" required style="padding: 0.35rem 0.5rem; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.8rem;" />' +
+            (id > 1 ? '<button type="button" onclick="removeParticipantRow(' + id + ')" style="background: #EF4444; color: #FFF; border: none; border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 800; cursor: pointer;">✕</button>' : '<div style="width: 24px;"></div>');
+
+          container.appendChild(div);
+        }
+
+        function removeParticipantRow(id) {
+          const el = document.getElementById('pRow_' + id);
+          if (el) el.remove();
+        }
+
         function openScheduleModal() {
+          const container = document.getElementById('participantRowsContainer');
+          if (container && container.children.length === 0) {
+            addParticipantRow();
+          }
           document.getElementById('scheduleModal').style.display = 'flex';
         }
 
@@ -1757,10 +1791,43 @@ const server = http.createServer(async (req, res) => {
           btn.disabled = true;
 
           try {
+            const rows = document.querySelectorAll('.participant-row');
+            const participants = [];
+            const seenEmails = new Set();
+
+            for (let row of rows) {
+              const nameEl = row.querySelector('.p-name');
+              const emailEl = row.querySelector('.p-email');
+              const name = nameEl ? nameEl.value.trim() : '';
+              const email = emailEl ? emailEl.value.trim().toLowerCase() : '';
+
+              if (!name || !email || !email.includes('@')) continue;
+
+              if (seenEmails.has(email)) {
+                showErrorBanner('Duplicate participant email address: ' + email + '. Each participant must have a unique email address.');
+                btn.innerText = 'SCHEDULE WITH GOOGLE MEET →';
+                btn.disabled = false;
+                return;
+              }
+              seenEmails.add(email);
+              participants.push({ name, email });
+            }
+
+            if (participants.length === 0) {
+              showErrorBanner('At least one valid participant name and email address is required.');
+              btn.innerText = 'SCHEDULE WITH GOOGLE MEET →';
+              btn.disabled = false;
+              return;
+            }
+
+            const primaryParticipant = participants[0];
+
             const payload = {
               title: document.getElementById('mTitle').value,
-              participantName: document.getElementById('mParticipantName').value,
-              participantEmail: document.getElementById('mParticipantEmail').value,
+              participantName: primaryParticipant.name,
+              participantEmail: primaryParticipant.email,
+              participants,
+              additionalAttendees: participants.map(p => p.email),
               date: document.getElementById('mDate').value,
               startTime: document.getElementById('mTime').value,
               durationMinutes: document.getElementById('mDuration').value,
@@ -1783,8 +1850,8 @@ const server = http.createServer(async (req, res) => {
                 date: payload.date,
                 startTime: payload.startTime,
                 timezone: payload.timezone,
-                participantName: payload.participantName,
-                participantEmail: payload.participantEmail,
+                participantCount: participants.length,
+                participantsText: participants.map(p => p.name + ' (' + p.email + ')').join(', '),
                 meetUrl: data.meetUrl
               });
               loadMeetings();
@@ -1802,7 +1869,7 @@ const server = http.createServer(async (req, res) => {
         function showSuccessModal(info) {
           document.getElementById('sTitle').innerText = info.title;
           document.getElementById('sDateTime').innerText = '📅 ' + info.date + ' • ' + info.startTime + ' (' + info.timezone + ')';
-          document.getElementById('sParticipant').innerText = '👤 ' + info.participantName + ' (' + info.participantEmail + ')';
+          document.getElementById('sParticipant').innerText = '👥 ' + info.participantsText;
           const meetBtn = document.getElementById('sMeetLink');
           meetBtn.href = info.meetUrl;
           document.getElementById('successModal').style.display = 'flex';
