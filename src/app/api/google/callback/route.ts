@@ -56,6 +56,17 @@ export async function GET(request: Request) {
     const { access_token, refresh_token, expires_in, scope } = exchangeRes.tokens;
     const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
+    // Query existing record to preserve refresh_token if Google didn't return a new one
+    const { data: existingToken } = await supabase
+      .from("user_google_tokens")
+      .select("refresh_token")
+      .eq("user_id", user.id)
+      .eq("organization_id", member.organization_id)
+      .limit(1)
+      .single();
+
+    const finalRefreshToken = refresh_token || existingToken?.refresh_token || null;
+
     // Store tokens securely in user_google_tokens table
     const { error: upsertErr } = await supabase
       .from("user_google_tokens")
@@ -64,7 +75,7 @@ export async function GET(request: Request) {
           user_id: user.id,
           organization_id: member.organization_id,
           access_token,
-          refresh_token: refresh_token || null,
+          refresh_token: finalRefreshToken,
           expires_at: expiresAt,
           scope,
           updated_at: new Date().toISOString(),

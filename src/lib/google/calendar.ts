@@ -32,6 +32,15 @@ export interface GoogleConsentUrlResult {
   error?: string;
 }
 
+export interface GoogleCalendarConnectionResult {
+  connected: boolean;
+  tokenRecord?: any;
+  accessToken?: string;
+  expiresAt?: string;
+  lastUpdated?: string;
+  error?: string;
+}
+
 /**
  * Returns official Google OAuth 2.0 Consent URL for Calendar API scopes with state parameter.
  */
@@ -140,6 +149,95 @@ export async function refreshGoogleAccessToken(
     };
   } catch (err: any) {
     return { success: false, error: err.message || "Network error refreshing Google access token." };
+  }
+}
+
+/**
+ * Single Source of Truth helper function to resolve Google Calendar connection status for a user/organization.
+ * Automatically refreshes access token if expired and refresh_token is present.
+ */
+export async function getGoogleCalendarConnection(
+  supabase: any,
+  userId: string,
+  organizationId: string
+): Promise<GoogleCalendarConnectionResult> {
+  if (!supabase || !organizationId) {
+    return { connected: false, error: "Invalid parameters" };
+  }
+
+  try {
+    // 1. Query for user/org token
+    let query = supabase
+      .from("user_google_tokens")
+      .select("*")
+      .eq("organization_id", organizationId);
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data: records } = await query.order("updated_at", { ascending: false }).limit(1);
+
+    let tokenRecord = Array.isArray(records) && records.length > 0 ? records[0] : null;
+
+    // 2. Fallback lookup for workspace token if specific user record is not found
+    if (!tokenRecord) {
+      const { data: fallbackRecords } = await supabase
+        .from("user_google_tokens")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+
+      if (Array.isArray(fallbackRecords) && fallbackRecords.length > 0) {
+        tokenRecord = fallbackRecords[0];
+      }
+    }
+
+    if (!tokenRecord || !tokenRecord.access_token) {
+      return { connected: false };
+    }
+
+    let accessToken = tokenRecord.access_token;
+    const expiresAtMs = new Date(tokenRecord.expires_at).getTime();
+
+    // 3. Auto-refresh access token if expired (within 60 seconds buffer)
+    if (expiresAtMs <= Date.now() + 60000 && tokenRecord.refresh_token) {
+      const refreshRes = await refreshGoogleAccessToken(tokenRecord.refresh_token);
+      if (refreshRes.success && refreshRes.accessToken) {
+        accessToken = refreshRes.accessToken;
+        const newExpiresAt = new Date(Date.now() + (refreshRes.expiresIn || 3600) * 1000).toISOString();
+        const updatedAt = new Date().toISOString();
+
+        await supabase
+          .from("user_google_tokens")
+          .update({
+            access_token: accessToken,
+            expires_at: newExpiresAt,
+            updated_at: updatedAt,
+          })
+          .eq("id", tokenRecord.id);
+
+        tokenRecord.access_token = accessToken;
+        tokenRecord.expires_at = newExpiresAt;
+        tokenRecord.updated_at = updatedAt;
+      } else {
+        return {
+          connected: false,
+          error: "Google Calendar connection expired. Please reconnect Google Calendar.",
+        };
+      }
+    }
+
+    return {
+      connected: true,
+      tokenRecord,
+      accessToken,
+      expiresAt: tokenRecord.expires_at,
+      lastUpdated: tokenRecord.updated_at,
+    };
+  } catch (err: any) {
+    return { connected: false, error: err.message || "Failed to resolve Google Calendar connection." };
   }
 }
 

@@ -64,13 +64,16 @@ export default function MeetingsPage() {
 
   const supabase = createClient();
 
-  const checkGoogleStatus = useCallback(async () => {
+  const checkGoogleStatus = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/google/status");
       const data = await res.json();
-      setGoogleConnected(Boolean(data.connected));
+      const isConnected = Boolean(data.connected);
+      setGoogleConnected(isConnected);
+      return isConnected;
     } catch {
       setGoogleConnected(false);
+      return false;
     }
   }, []);
 
@@ -105,12 +108,22 @@ export default function MeetingsPage() {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get("status") === "google_connected") {
         setSuccessMsg("✅ Google Calendar successfully connected!");
-        setGoogleConnected(true);
+        checkGoogleStatus();
       } else if (urlParams.has("error")) {
         setError(`⚠️ ${urlParams.get("error")}`);
       }
     }
   }, [checkGoogleStatus, fetchMeetings]);
+
+  async function handleOpenScheduleModal() {
+    setError(null);
+    const isConn = await checkGoogleStatus();
+    if (!isConn) {
+      setError("Connect Google Calendar before scheduling a meeting.");
+      return;
+    }
+    setShowModal(true);
+  }
 
   async function handleCreateMeeting(e: React.FormEvent) {
     e.preventDefault();
@@ -133,11 +146,6 @@ export default function MeetingsPage() {
     }
     if (endTime <= startTime) {
       setError("End time must be after start time.");
-      return;
-    }
-
-    if (!googleConnected) {
-      setError("Please click 'Connect Google Calendar' first to authenticate your Google Account.");
       return;
     }
 
@@ -165,7 +173,15 @@ export default function MeetingsPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(`ERROR (${data.code || "FAILED"}): ${data.error || "Failed to create Google Calendar meeting."}`);
+        if (data.code === "GOOGLE_NOT_CONNECTED") {
+          setGoogleConnected(false);
+          setError("Connect Google Calendar before scheduling a meeting.");
+        } else if (data.code === "GOOGLE_TOKEN_EXPIRED") {
+          setGoogleConnected(false);
+          setError("Your Google Calendar connection has expired. Please reconnect Google Calendar.");
+        } else {
+          setError(data.error || "Google Calendar could not create the meeting. Please try again.");
+        }
       } else if (data.meeting) {
         setMeetings((prev) => [data.meeting, ...prev]);
         setSuccessMsg(`✅ Real Google Calendar event & Google Meet link created! Link: ${data.meetUrl}`);
@@ -248,13 +264,7 @@ export default function MeetingsPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
           <button
-            onClick={() => {
-              if (!googleConnected) {
-                setError("Please connect your Google Calendar first before scheduling a meeting.");
-              } else {
-                setShowModal(true);
-              }
-            }}
+            onClick={handleOpenScheduleModal}
             className="btn-pill-primary text-xs cursor-pointer flex items-center gap-1"
           >
             <Plus className="w-4 h-4 text-[#12B76A]" /> Schedule Meeting
@@ -299,7 +309,7 @@ export default function MeetingsPage() {
               </a>
             ) : (
               <button
-                onClick={() => setShowModal(true)}
+                onClick={handleOpenScheduleModal}
                 className="btn-pill-primary text-xs cursor-pointer"
               >
                 <Plus className="w-4 h-4 text-[#12B76A]" /> Schedule First Meeting

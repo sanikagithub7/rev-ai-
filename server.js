@@ -447,6 +447,18 @@ const server = http.createServer(async (req, res) => {
       const orgs = await orgRes.json();
       const orgId = Array.isArray(orgs) && orgs.length > 0 ? orgs[0].id : "00000000-0000-0000-0000-000000000000";
 
+      // Check existing token to preserve refresh_token
+      let finalRefreshToken = tokens.refresh_token || null;
+      if (!finalRefreshToken) {
+        try {
+          const oldTokenRes = await supabaseFetch(`user_google_tokens?organization_id=eq.${orgId}&select=refresh_token&limit=1`);
+          const oldTokens = await oldTokenRes.json();
+          if (Array.isArray(oldTokens) && oldTokens.length > 0 && oldTokens[0].refresh_token) {
+            finalRefreshToken = oldTokens[0].refresh_token;
+          }
+        } catch (e) {}
+      }
+
       // Save token in user_google_tokens
       await supabaseFetch("user_google_tokens", {
         method: "POST",
@@ -455,16 +467,23 @@ const server = http.createServer(async (req, res) => {
           user_id: "00000000-0000-0000-0000-000000000000",
           organization_id: orgId,
           access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || null,
+          refresh_token: finalRefreshToken,
           expires_at: expiresAt,
           scope: tokens.scope,
           updated_at: new Date().toISOString()
         })
       });
 
+      console.info("[Google OAuth Callback Success]", {
+        orgId,
+        accessTokenObtained: Boolean(tokens.access_token),
+        refreshTokenObtained: Boolean(finalRefreshToken)
+      });
+
       res.writeHead(302, { "Location": `${appUrl}/dashboard/meetings?status=google_connected` });
       res.end();
     } catch (err) {
+      console.error("[Google OAuth Callback Error]", err);
       res.writeHead(302, { "Location": `${appUrl}/dashboard/meetings?error=${encodeURIComponent(err.message)}` });
       res.end();
     }
