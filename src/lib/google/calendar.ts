@@ -253,8 +253,8 @@ export async function createGoogleCalendarEventWithMeet(
   if (!accessToken) {
     return {
       success: false,
-      errorCode: "GOOGLE_NOT_CONNECTED",
-      error: "Google Calendar is not connected. Please click 'Connect Google Calendar' first.",
+      errorCode: "NOT_CONNECTED",
+      error: "Connect Google Calendar before scheduling a meeting.",
     };
   }
 
@@ -306,17 +306,25 @@ export async function createGoogleCalendarEventWithMeet(
 
     if (!res.ok) {
       const errData = await res.json();
+      const apiMsg = errData?.error?.message || "";
+      let code = "CALENDAR_EVENT_CREATE_FAILED";
+      let cleanError = apiMsg || `Google Calendar API returned error (${res.status})`;
+
       if (res.status === 401) {
-        return {
-          success: false,
-          errorCode: "GOOGLE_TOKEN_EXPIRED",
-          error: "Google Calendar connection expired. Please reconnect Google Calendar.",
-        };
+        code = "TOKEN_EXPIRED";
+        cleanError = "Your Google Calendar connection expired. Please reconnect Google Calendar.";
+      } else if (res.status === 403) {
+        code = "PERMISSION_DENIED";
+        cleanError = "Your Google account does not have permission to create Calendar events.";
+      } else if (apiMsg.includes("disabled") || apiMsg.includes("has not been used in project")) {
+        code = "CALENDAR_API_DISABLED";
+        cleanError = "Google Calendar API is newly enabled for project 47371793037. If you recently enabled it, Google Cloud propagation takes 1-3 minutes worldwide. Please click 'SCHEDULE WITH GOOGLE MEET' again in 1-2 minutes.";
       }
+
       return {
         success: false,
-        errorCode: "GOOGLE_CALENDAR_API_ERROR",
-        error: errData?.error?.message || `Google Calendar API returned error (${res.status})`,
+        errorCode: code,
+        error: cleanError,
       };
     }
 
@@ -331,7 +339,7 @@ export async function createGoogleCalendarEventWithMeet(
     if (!meetUrl) {
       return {
         success: false,
-        errorCode: "GOOGLE_MEET_CREATION_FAILED",
+        errorCode: "MEET_CREATION_FAILED",
         error: "Google Calendar event was created, but Google Meet link was not returned by Google API.",
       };
     }
@@ -345,7 +353,7 @@ export async function createGoogleCalendarEventWithMeet(
   } catch (err: any) {
     return {
       success: false,
-      errorCode: "GOOGLE_CALENDAR_API_ERROR",
+      errorCode: "CALENDAR_EVENT_CREATE_FAILED",
       error: err.message || "Failed to reach Google Calendar API.",
     };
   }

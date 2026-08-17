@@ -80,8 +80,31 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://xlyzfjphqz
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_QOa-_HaTG8SVUjeg6VAG3A__QL1jXHx";
 const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
-// In-Memory Token Store for guaranteed connection persistence & zero-latency fallback
+// In-Memory Token Store & Disk Token Cache for guaranteed connection persistence across server restarts
 const serverGoogleTokens = new Map();
+const TOKEN_CACHE_FILE = path.join(__dirname, '.google_tokens.json');
+
+function saveTokenToDisk(tokenRecord) {
+  try {
+    fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(tokenRecord, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+function loadTokenFromDisk() {
+  if (fs.existsSync(TOKEN_CACHE_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+      if (data && data.access_token) return data;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// Auto-load token from disk if available
+const diskToken = loadTokenFromDisk();
+if (diskToken) {
+  serverGoogleTokens.set("default", diskToken);
+}
 
 // Helper to query Supabase REST API directly
 async function supabaseFetch(path, options = {}) {
@@ -494,8 +517,9 @@ const server = http.createServer(async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
-      // 1. Save in memory for zero-latency availability
+      // 1. Save in memory & disk for zero-latency availability & restart tolerance
       serverGoogleTokens.set("default", tokenRecord);
+      saveTokenToDisk(tokenRecord);
 
       // 2. Persist in Supabase DB table
       try {
@@ -791,15 +815,20 @@ const server = http.createServer(async (req, res) => {
               grant_type: "refresh_token",
             }),
           });
-          if (refRes.ok) {
             const refData = await refRes.json();
             accessToken = refData.access_token;
             const newExpiresAt = new Date(Date.now() + (refData.expires_in || 3600) * 1000).toISOString();
-            await supabaseFetch(`user_google_tokens?id=eq.${tokenRecord.id}`, {
-              method: "PATCH",
-              body: JSON.stringify({ access_token: accessToken, expires_at: newExpiresAt, updated_at: new Date().toISOString() })
-            });
-          }
+            tokenRecord.access_token = accessToken;
+            tokenRecord.expires_at = newExpiresAt;
+            tokenRecord.updated_at = new Date().toISOString();
+            serverGoogleTokens.set("default", tokenRecord);
+            saveTokenToDisk(tokenRecord);
+            try {
+              await supabaseFetch(`user_google_tokens?id=eq.${tokenRecord.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ access_token: accessToken, expires_at: newExpiresAt, updated_at: tokenRecord.updated_at })
+              });
+            } catch (e) {}
         }
 
         // 4. Create Google Calendar Event with Meet Link
@@ -828,11 +857,26 @@ const server = http.createServer(async (req, res) => {
 
         if (!calRes.ok) {
           const errData = await calRes.json();
+          const apiMsg = errData?.error?.message || "";
+          let code = "CALENDAR_EVENT_CREATE_FAILED";
+          let cleanError = apiMsg || `Google Calendar API returned error (${calRes.status})`;
+
+          if (calRes.status === 401) {
+            code = "TOKEN_EXPIRED";
+            cleanError = "Your Google Calendar connection expired. Please reconnect Google Calendar.";
+          } else if (calRes.status === 403) {
+            code = "PERMISSION_DENIED";
+            cleanError = "Your Google account does not have permission to create Calendar events.";
+          } else if (apiMsg.includes("disabled") || apiMsg.includes("has not been used in project")) {
+            code = "CALENDAR_API_DISABLED";
+            cleanError = "Google Calendar API is newly enabled for project 47371793037. If you recently enabled it, Google Cloud propagation takes 1-3 minutes worldwide. Please click 'SCHEDULE WITH GOOGLE MEET' again in 1-2 minutes.";
+          }
+
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             success: false,
-            code: "GOOGLE_CALENDAR_API_ERROR",
-            error: errData?.error?.message || `Google Calendar API returned error (${calRes.status})`
+            code,
+            error: cleanError
           }));
           return;
         }
