@@ -136,9 +136,9 @@ export async function detectQwenModel(baseUrl: string): Promise<string> {
 
       const match = names.find(
         (n) =>
-          n.includes("qwen") ||
+          n.includes("qwen3.5") ||
           n.includes("qwen2.5") ||
-          n.includes("qwen2")
+          n.includes("qwen")
       );
 
       if (match) return match;
@@ -147,7 +147,7 @@ export async function detectQwenModel(baseUrl: string): Promise<string> {
     // Fallback if tag check fails
   }
 
-  return "qwen2.5";
+  return "qwen3.5:latest";
 }
 
 /**
@@ -665,10 +665,14 @@ Rules:
 
 Analyze the lead and generate structured intelligence in JSON format.`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
+
   try {
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         model: modelName,
         prompt: `${systemPrompt}\n\n${userPrompt}`,
@@ -677,8 +681,17 @@ Analyze the lead and generate structured intelligence in JSON format.`;
       }),
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`Ollama API error (${response.status})`);
+      if (response.status === 404) {
+        const errObj: any = new Error(`Configured Qwen model '${modelName}' was not found in Ollama.`);
+        errObj.code = "MODEL_NOT_FOUND";
+        throw errObj;
+      }
+      const errObj: any = new Error(`Ollama returned HTTP error ${response.status}`);
+      errObj.code = "OLLAMA_HTTP_ERROR";
+      throw errObj;
     }
 
     const data = await response.json();
@@ -692,7 +705,9 @@ Analyze the lead and generate structured intelligence in JSON format.`;
       if (match) {
         parsed = JSON.parse(match[0]);
       } else {
-        throw new Error("Invalid JSON returned from Qwen AI model");
+        const errObj: any = new Error("Invalid JSON structure returned from AI model.");
+        errObj.code = "INVALID_AI_RESPONSE";
+        throw errObj;
       }
     }
 
@@ -765,10 +780,22 @@ Analyze the lead and generate structured intelligence in JSON format.`;
       analyzed_at: new Date().toISOString(),
     };
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      throw new Error(`AI Result Validation Error: ${err.errors.map((e) => e.message).join(", ")}`);
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      const timeoutErr: any = new Error(`Ollama request timed out after 120 seconds.`);
+      timeoutErr.code = "OLLAMA_TIMEOUT";
+      throw timeoutErr;
     }
-    throw new Error(err?.message || "Ollama AI service is currently unavailable.");
+    if (err instanceof z.ZodError) {
+      const zodErr: any = new Error(`AI Result Validation Error: ${err.errors.map((e) => e.message).join(", ")}`);
+      zodErr.code = "INVALID_AI_RESPONSE";
+      throw zodErr;
+    }
+    if (!err.code) {
+      err.code = "OLLAMA_UNAVAILABLE";
+      err.message = `Ollama is not reachable at ${baseUrl}. Ensure Ollama is running. (${err.message})`;
+    }
+    throw err;
   }
 }
 

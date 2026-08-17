@@ -498,13 +498,12 @@ export default function ProjectReviewPage() {
               {(result.recommended_actions || []).map((act, idx) => (
                 <div key={idx} className="p-3.5 border border-black bg-[#F1F2F3] sharp-border flex flex-col sm:flex-row items-start gap-3">
                   <span
-                    className={`px-2 py-0.5 text-[9px] font-bold uppercase sharp-border shrink-0 ${
-                      act.priority === "HIGH"
-                        ? "bg-red-600 text-white"
-                        : act.priority === "MEDIUM"
+                    className={`px-2 py-0.5 text-[9px] font-bold uppercase sharp-border shrink-0 ${act.priority === "HIGH"
+                      ? "bg-red-600 text-white"
+                      : act.priority === "MEDIUM"
                         ? "bg-[#F4B62A] text-black"
                         : "bg-neutral-300 text-black"
-                    }`}
+                      }`}
                   >
                     {act.priority || "HIGH"}
                   </span>
@@ -534,21 +533,19 @@ export default function ProjectReviewPage() {
           <div className="flex border-b border-black text-xs font-bold uppercase">
             <button
               onClick={() => setMode("URL_REVIEW")}
-              className={`px-4 py-2 border-b-2 cursor-pointer ${
-                mode === "URL_REVIEW"
-                  ? "border-[#12B76A] bg-[#12B76A]/10 text-black font-black"
-                  : "border-transparent text-neutral-500 hover:text-black"
-              }`}
+              className={`px-4 py-2 border-b-2 cursor-pointer ${mode === "URL_REVIEW"
+                ? "border-[#12B76A] bg-[#12B76A]/10 text-black font-black"
+                : "border-transparent text-neutral-500 hover:text-black"
+                }`}
             >
               🌐 AI WEBSITE REVIEW (PASTE URL)
             </button>
             <button
               onClick={() => setMode("FULL_PROJECT")}
-              className={`px-4 py-2 border-b-2 cursor-pointer ${
-                mode === "FULL_PROJECT"
-                  ? "border-[#12B76A] bg-[#12B76A]/10 text-black font-black"
-                  : "border-transparent text-neutral-500 hover:text-black"
-              }`}
+              className={`px-4 py-2 border-b-2 cursor-pointer ${mode === "FULL_PROJECT"
+                ? "border-[#12B76A] bg-[#12B76A]/10 text-black font-black"
+                : "border-transparent text-neutral-500 hover:text-black"
+                }`}
             >
               📝 DETAILED PROJECT REVIEW
             </button>
@@ -715,9 +712,8 @@ export default function ProjectReviewPage() {
                   return (
                     <tr
                       key={rev.id}
-                      className={`hover:bg-[#F1F2F3]/60 transition-colors ${
-                        isSelected ? "bg-[#12B76A]/10 font-bold" : ""
-                      }`}
+                      className={`hover:bg-[#F1F2F3]/60 transition-colors ${isSelected ? "bg-[#12B76A]/10 font-bold" : ""
+                        }`}
                     >
                       <td className="p-3">
                         <div className="font-bold text-black uppercase">{rev.project_name}</div>

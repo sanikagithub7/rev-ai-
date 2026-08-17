@@ -1,29 +1,38 @@
-import { URL } from "url";
-
 export interface CreateGoogleMeetParams {
   title: string;
-  date: string;
-  startTime: string;
-  durationMinutes?: number;
-  participantEmail: string;
   description?: string;
-  accessToken?: string;
+  startDateTime: string; // ISO 8601 string
+  endDateTime: string;   // ISO 8601 string
+  timezone: string;
+  participantEmail: string;
+  participantName?: string;
+  accessToken: string;
 }
 
 export interface GoogleMeetResult {
   success: boolean;
   meetUrl?: string;
   eventId?: string;
+  htmlLink?: string;
   error?: string;
+  errorCode?: string;
 }
 
-export function getGoogleOAuthConsentUrl(): string {
-  const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const redirectUri = `${appUrl}/api/auth/google/callback`;
+export interface GoogleOAuthTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  scope: string;
+  token_type: string;
+}
 
+/**
+ * Returns official Google OAuth 2.0 Consent URL for Calendar API scopes.
+ */
+export function getGoogleOAuthConsentUrl(redirectUri: string): string {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const scope = encodeURIComponent(
-    "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar"
+    "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
   );
 
   return `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
@@ -32,71 +41,224 @@ export function getGoogleOAuthConsentUrl(): string {
 }
 
 /**
- * Creates a real Google Calendar Event with an automated Google Meet link.
+ * Server-side exchange of OAuth authorization code for Access Token & Refresh Token.
  */
-export async function createRealGoogleMeetEvent(params: CreateGoogleMeetParams): Promise<GoogleMeetResult> {
-  const { title, date, startTime, durationMinutes = 30, participantEmail, description, accessToken } = params;
+export async function exchangeGoogleOAuthCode(
+  code: string,
+  redirectUri: string
+): Promise<{ success: boolean; tokens?: GoogleOAuthTokenResponse; error?: string }> {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 
-  // Validate inputs
-  if (!participantEmail || !participantEmail.includes("@")) {
-    return { success: false, error: "Valid participant email is required." };
-  }
-
-  // If no OAuth accessToken available, return descriptive setup instructions
-  if (!accessToken && !process.env.GOOGLE_CLIENT_ID) {
-    // Generate valid Google Meet link fallback structure for authorized enterprise workspace
-    const randomMeetCode = `${Math.random().toString(36).substring(2, 5)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`;
-    const meetUrl = `https://meet.google.com/${randomMeetCode}`;
-
+  if (!clientId || !clientSecret) {
     return {
-      success: true,
-      meetUrl,
-      eventId: `g-event-${Date.now()}`,
+      success: false,
+      error: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables must be configured.",
     };
   }
 
   try {
-    const startDateTime = new Date(`${date} ${startTime}`).toISOString();
-    const endDate = new Date(new Date(startDateTime).getTime() + durationMinutes * 60000);
-    const endDateTime = endDate.toISOString();
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }),
+    });
 
+    if (!res.ok) {
+      const errData = await res.json();
+      return {
+        success: false,
+        error: errData.error_description || errData.error || "Failed to exchange Google authorization code.",
+      };
+    }
+
+    const tokens: GoogleOAuthTokenResponse = await res.json();
+    return { success: true, tokens };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error during Google OAuth token exchange." };
+  }
+}
+
+/**
+ * Server-side refresh of an expired Google Access Token using Refresh Token.
+ */
+export async function refreshGoogleAccessToken(
+  refreshToken: string
+): Promise<{ success: boolean; accessToken?: string; expiresIn?: number; error?: string }> {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      return { success: false, error: errData.error_description || "Failed to refresh Google access token." };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      accessToken: data.access_token,
+      expiresIn: data.expires_in,
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error refreshing Google access token." };
+  }
+}
+
+/**
+ * Creates a real Google Calendar Event with an automated Google Meet video conference link.
+ * Uses conferenceData.createRequest with type 'hangoutsMeet'.
+ */
+export async function createGoogleCalendarEventWithMeet(
+  params: CreateGoogleMeetParams
+): Promise<GoogleMeetResult> {
+  const { title, description, startDateTime, endDateTime, timezone, participantEmail, participantName, accessToken } = params;
+
+  if (!accessToken) {
+    return {
+      success: false,
+      errorCode: "GOOGLE_NOT_CONNECTED",
+      error: "Google Calendar is not connected. Please click 'Connect Google Calendar' first.",
+    };
+  }
+
+  if (!participantEmail || !participantEmail.includes("@")) {
+    return {
+      success: false,
+      errorCode: "INVALID_MEETING_DATA",
+      error: "A valid participant email address is required.",
+    };
+  }
+
+  try {
     const eventPayload = {
       summary: title,
-      description: description || "Scheduled via REV AI Autonomous Sales Autopilot.",
-      start: { dateTime: startDateTime },
-      end: { dateTime: endDateTime },
-      attendees: [{ email: participantEmail.trim() }],
+      description: description || "Sales Demo & Discovery Call scheduled via Rev AI Autopilot.",
+      start: {
+        dateTime: startDateTime,
+        timeZone: timezone,
+      },
+      end: {
+        dateTime: endDateTime,
+        timeZone: timezone,
+      },
+      attendees: [
+        {
+          email: participantEmail.trim(),
+          displayName: participantName || participantEmail.split("@")[0],
+        },
+      ],
       conferenceData: {
         createRequest: {
-          requestId: `rev-meet-${Date.now()}`,
+          requestId: `rev-meet-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           conferenceSolutionKey: { type: "hangoutsMeet" },
         },
       },
     };
 
-    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(eventPayload),
-    });
+    const res = await fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(eventPayload),
+      }
+    );
 
     if (!res.ok) {
       const errData = await res.json();
-      return { success: false, error: errData?.error?.message || "Google Calendar API error" };
+      if (res.status === 401) {
+        return {
+          success: false,
+          errorCode: "GOOGLE_TOKEN_EXPIRED",
+          error: "Google authentication token has expired. Please reconnect your Google Calendar.",
+        };
+      }
+      return {
+        success: false,
+        errorCode: "GOOGLE_CALENDAR_API_ERROR",
+        error: errData?.error?.message || `Google Calendar API returned error (${res.status})`,
+      };
     }
 
     const data = await res.json();
-    const meetUrl = data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri || `https://meet.google.com/rev-${Date.now()}`;
+
+    // Extract genuine Google Meet URL from event response
+    const meetUrl =
+      data.hangoutLink ||
+      data.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === "video")?.uri ||
+      data.conferenceData?.entryPoints?.[0]?.uri;
+
+    if (!meetUrl) {
+      return {
+        success: false,
+        errorCode: "GOOGLE_MEET_CREATION_FAILED",
+        error: "Google Calendar event was created, but Google Meet link was not returned by Google API.",
+      };
+    }
 
     return {
       success: true,
       meetUrl,
       eventId: data.id,
+      htmlLink: data.htmlLink,
     };
   } catch (err: any) {
-    return { success: false, error: err.message || "Failed to create Google Calendar event." };
+    return {
+      success: false,
+      errorCode: "GOOGLE_CALENDAR_API_ERROR",
+      error: err.message || "Failed to reach Google Calendar API.",
+    };
+  }
+}
+
+/**
+ * Cancels/Deletes a Google Calendar Event by Event ID.
+ */
+export async function deleteGoogleCalendarEvent(
+  eventId: string,
+  accessToken: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!eventId || !accessToken) {
+    return { success: false, error: "Event ID and access token required to cancel Google Calendar event." };
+  }
+
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!res.ok && res.status !== 404 && res.status !== 410) {
+      const errData = await res.json();
+      return { success: false, error: errData?.error?.message || "Failed to delete Google Calendar event." };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to contact Google Calendar API." };
   }
 }

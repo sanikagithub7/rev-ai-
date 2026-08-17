@@ -191,19 +191,19 @@ export default function AgentDashboardPage() {
         return;
       }
 
-      // 1. Insert new sample lead
-      const leadName = "Sarah Connor";
-      const companyName = "Cyberdyne Systems";
+      // 1. Insert test inbound lead
+      const leadName = "Inbound Prospect";
+      const companyName = "Enterprise Tech";
 
       const { data: newLead } = await supabase
         .from("leads")
         .insert({
           organization_id: member.organization_id,
           name: leadName,
-          email: "sarah@cyberdyne.com",
+          email: "prospect@enterprisetech.io",
           company: companyName,
-          score: 92,
-          status: "HOT",
+          score: 85,
+          status: "NEW",
         })
         .select()
         .single();
@@ -213,10 +213,10 @@ export default function AgentDashboardPage() {
         organization_id: member.organization_id,
         lead_id: newLead?.id,
         trigger_type: "MANUAL_TRIGGER",
-        score: 92,
+        score: 85,
         intent: "HIGH",
         priority: "URGENT",
-        summary: "High-intent lead detected for enterprise sales automation",
+        summary: "High-intent lead detected for sales automation",
         status: "COMPLETED",
       });
 
@@ -227,8 +227,8 @@ export default function AgentDashboardPage() {
           organization_id: member.organization_id,
           lead_id: newLead?.id,
           event_type: "AI_ANALYSIS",
-          title: "AI Analysis Completed (Score: 92/100)",
-          details: { summary: "Detected intent: Enterprise Automation" },
+          title: "AI Analysis Completed (Score: 85/100)",
+          details: { summary: "Detected intent: Enterprise Sales Automation" },
         })
         .select()
         .single();
@@ -242,9 +242,9 @@ export default function AgentDashboardPage() {
             lead_name: leadName,
             company: companyName,
             action_type: "SEND_EMAIL",
-            title: "Outreach Email to Sarah Connor",
-            draft_message: "Hi Sarah,\n\nI saw your interest in AI Sales Autopilot. Open for a demo call this Tuesday?\n\nBest,\nREV AI Agent",
-            score: 92,
+            title: `Outreach Email to ${leadName}`,
+            draft_message: `Hi ${leadName},\n\nThank you for reaching out to REV AI. Would you be open for a quick demo this week?\n\nBest,\nREV AI Agent`,
+            score: 85,
             status: "PENDING",
           })
           .select()

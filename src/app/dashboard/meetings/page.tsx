@@ -1,38 +1,78 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Calendar as CalendarIcon, Plus, CheckCircle2, Clock, Video, X, RefreshCw, AlertCircle, ExternalLink } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Plus,
+  CheckCircle2,
+  Clock,
+  Video,
+  X,
+  RefreshCw,
+  AlertCircle,
+  ExternalLink,
+  Trash2,
+  Globe,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 interface MeetingRecord {
   id: string;
   organization_id: string;
+  title?: string;
   lead_name: string;
-  company: string;
+  participant_name?: string;
+  participant_email?: string;
+  company?: string;
   date_time: string;
-  type: string;
-  status: "CONFIRMED" | "COMPLETED" | "CANCELLED";
+  start_time?: string;
+  end_time?: string;
+  timezone?: string;
+  type?: string;
+  status: "SCHEDULED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
   meeting_link: string;
+  calendar_url?: string;
+  google_event_id?: string;
+  description?: string;
   created_at: string;
 }
 
 export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Form state
-  const [title, setTitle] = useState("Sales Qualification & Demo Call");
-  const [leadName, setLeadName] = useState("");
-  const [company, setCompany] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [time, setTime] = useState("10:00 AM EST");
+  const [title, setTitle] = useState("Rev AI Product Demo");
+  const [participantName, setParticipantName] = useState("");
   const [participantEmail, setParticipantEmail] = useState("");
+  const [company, setCompany] = useState("");
+  const [date, setDate] = useState(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split("T")[0];
+  });
+  const [startTime, setStartTime] = useState("15:00");
+  const [endTime, setEndTime] = useState("15:30");
+  const [timezone, setTimezone] = useState("Asia/Kolkata");
+  const [description, setDescription] = useState("Demo of Rev AI B2B Sales Automation platform.");
 
   const supabase = createClient();
+
+  const checkGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/google/status");
+      const data = await res.json();
+      setGoogleConnected(Boolean(data.connected));
+    } catch {
+      setGoogleConnected(false);
+    }
+  }, []);
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -58,13 +98,46 @@ export default function MeetingsPage() {
   }, [supabase]);
 
   useEffect(() => {
+    checkGoogleStatus();
     fetchMeetings();
-  }, [fetchMeetings]);
+
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("status") === "google_connected") {
+        setSuccessMsg("✅ Google Calendar successfully connected!");
+        setGoogleConnected(true);
+      } else if (urlParams.has("error")) {
+        setError(`⚠️ ${urlParams.get("error")}`);
+      }
+    }
+  }, [checkGoogleStatus, fetchMeetings]);
 
   async function handleCreateMeeting(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !date || !time || !participantEmail.trim()) {
-      setError("Meeting title, date, time, and participant email are required.");
+
+    if (!title.trim()) {
+      setError("Meeting title is required.");
+      return;
+    }
+    if (!participantName.trim()) {
+      setError("Participant name is required.");
+      return;
+    }
+    if (!participantEmail.trim() || !participantEmail.includes("@") || !participantEmail.includes(".")) {
+      setError("Please enter a valid participant email address.");
+      return;
+    }
+    if (!date || !startTime || !endTime) {
+      setError("Date, start time, and end time are required.");
+      return;
+    }
+    if (endTime <= startTime) {
+      setError("End time must be after start time.");
+      return;
+    }
+
+    if (!googleConnected) {
+      setError("Please click 'Connect Google Calendar' first to authenticate your Google Account.");
       return;
     }
 
@@ -73,36 +146,68 @@ export default function MeetingsPage() {
     setSuccessMsg(null);
 
     try {
-      const res = await fetch("/api/meetings/create", {
+      const res = await fetch("/api/meetings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          date: date.trim(),
-          time: time.trim(),
+          participantName: participantName.trim(),
           participantEmail: participantEmail.trim(),
           company: company.trim(),
-          leadName: leadName.trim(),
+          date: date.trim(),
+          startTime: startTime.trim(),
+          endTime: endTime.trim(),
+          timezone,
+          description: description.trim(),
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || "Failed to create Google Calendar meeting.");
+      if (!res.ok || !data.success) {
+        setError(`ERROR (${data.code || "FAILED"}): ${data.error || "Failed to create Google Calendar meeting."}`);
       } else if (data.meeting) {
         setMeetings((prev) => [data.meeting, ...prev]);
-        setSuccessMsg(`Google Meet created! Link: ${data.meetUrl}`);
+        setSuccessMsg(`✅ Real Google Calendar event & Google Meet link created! Link: ${data.meetUrl}`);
         setShowModal(false);
-        setTitle("Sales Qualification & Demo Call");
-        setLeadName("");
-        setCompany("");
+        setTitle("Rev AI Product Demo");
+        setParticipantName("");
         setParticipantEmail("");
+        setCompany("");
+        setDescription("Demo of Rev AI B2B Sales Automation platform.");
       }
     } catch {
-      setError("Unable to save data. Please try again.");
+      setError("Network error while creating Google Calendar meeting.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleCancelMeeting(meetingId: string) {
+    if (!confirm("Are you sure you want to cancel this meeting and remove it from Google Calendar?")) return;
+
+    setCancellingId(meetingId);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}/cancel`, {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to cancel meeting.");
+      } else {
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === meetingId ? { ...m, status: "CANCELLED" } : m))
+        );
+        setSuccessMsg("Meeting cancelled and updated on Google Calendar.");
+      }
+    } catch {
+      setError("Failed to cancel meeting.");
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -112,23 +217,30 @@ export default function MeetingsPage() {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-black pb-6">
         <div>
           <div className="text-xs font-mono text-[#123B2D] uppercase tracking-widest mb-1">
-            // CALENDAR & GOOGLE MEET DISCOVERY
+            // GOOGLE CALENDAR & GOOGLE MEET DISCOVERY
           </div>
           <h1 className="text-4xl font-black uppercase tracking-tight">
             SCHEDULED MEETINGS
           </h1>
           <p className="text-sm text-neutral-600 mt-1">
-            Create real Google Calendar events with automated Google Meet links and calendar invitations.
+            Create genuine Google Calendar events with automated Google Meet video conference links.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <a
-            href="/api/auth/google"
-            className="px-3 py-2 border border-black bg-white hover:bg-neutral-100 text-xs font-bold uppercase sharp-border cursor-pointer flex items-center gap-1.5"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-[#12B76A]" /> Connect Google Calendar
-          </a>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {googleConnected === true ? (
+            <span className="px-3 py-2 border border-black bg-emerald-50 text-emerald-900 text-xs font-bold uppercase sharp-border flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> GOOGLE CALENDAR CONNECTED
+            </span>
+          ) : (
+            <a
+              href="/api/google/auth"
+              className="px-3 py-2 border border-black bg-white hover:bg-neutral-100 text-xs font-bold uppercase sharp-border cursor-pointer flex items-center gap-1.5"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-[#12B76A]" /> CONNECT GOOGLE CALENDAR
+            </a>
+          )}
+
           <button
             onClick={fetchMeetings}
             className="px-3 py-2 border border-black bg-white hover:bg-neutral-100 text-xs font-bold uppercase sharp-border cursor-pointer flex items-center gap-1"
@@ -136,10 +248,16 @@ export default function MeetingsPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => {
+              if (!googleConnected) {
+                setError("Please connect your Google Calendar first before scheduling a meeting.");
+              } else {
+                setShowModal(true);
+              }
+            }}
             className="btn-pill-primary text-xs cursor-pointer flex items-center gap-1"
           >
-            <Plus className="w-4 h-4 text-[#12B76A]" /> Create Meeting
+            <Plus className="w-4 h-4 text-[#12B76A]" /> Schedule Meeting
           </button>
         </div>
       </div>
@@ -161,7 +279,7 @@ export default function MeetingsPage() {
       {/* MEETINGS GRID OR EMPTY STATE */}
       {loading ? (
         <div className="bg-white p-12 text-center text-xs font-mono text-neutral-500 sharp-border flex items-center justify-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin text-[#12B76A]" /> Loading real meetings from database...
+          <RefreshCw className="w-4 h-4 animate-spin text-[#12B76A]" /> Loading real scheduled meetings from Supabase...
         </div>
       ) : meetings.length === 0 ? (
         <div className="bg-white p-12 text-center sharp-border space-y-4 max-w-2xl mx-auto my-4">
@@ -172,15 +290,21 @@ export default function MeetingsPage() {
             NO MEETINGS SCHEDULED
           </h2>
           <p className="text-xs text-neutral-600 max-w-md mx-auto leading-relaxed">
-            Connect your Google Calendar or create your first meeting slot to generate a Google Meet video conference link and attendee invite.
+            Connect your Google Calendar and schedule your first event to generate genuine Google Meet conference links and attendee invites.
           </p>
           <div className="pt-2 flex justify-center gap-3">
-            <button
-              onClick={() => setShowModal(true)}
-              className="btn-pill-primary text-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4 text-[#12B76A]" /> Create First Meeting
-            </button>
+            {!googleConnected ? (
+              <a href="/api/google/auth" className="btn-pill-primary text-xs cursor-pointer inline-flex items-center gap-1">
+                <ExternalLink className="w-4 h-4 text-[#12B76A]" /> Connect Google Calendar
+              </a>
+            ) : (
+              <button
+                onClick={() => setShowModal(true)}
+                className="btn-pill-primary text-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-[#12B76A]" /> Schedule First Meeting
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -189,18 +313,32 @@ export default function MeetingsPage() {
             <div key={m.id} className="bg-white p-6 sharp-border space-y-4 flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="bg-[#12B76A] text-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider sharp-border flex items-center gap-1">
+                  <span
+                    className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider sharp-border flex items-center gap-1 ${
+                      m.status === "SCHEDULED" || m.status === "CONFIRMED"
+                        ? "bg-[#12B76A] text-white"
+                        : m.status === "CANCELLED"
+                        ? "bg-red-600 text-white"
+                        : "bg-black text-white"
+                    }`}
+                  >
                     <CheckCircle2 className="w-3 h-3" /> {m.status}
                   </span>
-                  <span className="text-xs font-mono text-neutral-400">GOOGLE MEET VERIFIED</span>
+                  <span className="text-xs font-mono text-neutral-400">REAL GOOGLE MEET</span>
                 </div>
 
                 <h3 className="text-xl font-extrabold uppercase tracking-tight text-black">
-                  {m.type || m.lead_name}
+                  {m.title || m.type || "Sales Meeting"}
                 </h3>
                 <div className="text-xs font-bold text-neutral-800">
-                  Prospect: {m.lead_name} ({m.company})
+                  Participant: {m.participant_name || m.lead_name} ({m.participant_email || m.company || "Prospect"})
                 </div>
+
+                {m.description && (
+                  <div className="text-xs text-neutral-600">
+                    {m.description}
+                  </div>
+                )}
 
                 <div className="p-3 bg-[#F1F2F3] sharp-border text-xs font-mono text-neutral-700 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-[#12B76A]" />
@@ -208,32 +346,54 @@ export default function MeetingsPage() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-neutral-200 flex items-center justify-between">
-                <a
-                  href={m.meeting_link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-pill-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-                >
-                  <Video className="w-3.5 h-3.5 text-[#12B76A]" /> JOIN GOOGLE MEET
-                </a>
+              <div className="pt-4 border-t border-neutral-200 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {m.meeting_link && m.status !== "CANCELLED" && (
+                    <a
+                      href={m.meeting_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-pill-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                    >
+                      <Video className="w-3.5 h-3.5 text-[#12B76A]" /> JOIN GOOGLE MEET
+                    </a>
+                  )}
 
-                <span className="text-[10px] font-mono text-neutral-400">
-                  {m.meeting_link.replace(/^https?:\/\//, "").slice(0, 22)}...
-                </span>
+                  {m.calendar_url && (
+                    <a
+                      href={m.calendar_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] font-bold uppercase underline hover:text-[#12B76A] flex items-center gap-1"
+                    >
+                      <Globe className="w-3 h-3" /> Event Link
+                    </a>
+                  )}
+                </div>
+
+                {m.status !== "CANCELLED" && (
+                  <button
+                    onClick={() => handleCancelMeeting(m.id)}
+                    disabled={cancellingId === m.id}
+                    className="text-xs text-red-600 hover:text-red-800 font-bold uppercase flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {cancellingId === m.id ? "Cancelling..." : "Cancel"}
+                  </button>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* CREATE MEETING MODAL */}
+      {/* SCHEDULE MEETING MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-6 sharp-border max-w-md w-full space-y-4">
+          <div className="bg-white p-6 sharp-border max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-black pb-3">
               <h2 className="text-lg font-black uppercase tracking-tight">
-                Create Meeting & Google Meet Link
+                Schedule Meeting & Google Meet Link
               </h2>
               <X className="w-4 h-4 cursor-pointer" onClick={() => setShowModal(false)} />
             </div>
@@ -248,12 +408,42 @@ export default function MeetingsPage() {
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Sales Architecture Review"
+                  placeholder="Rev AI Product Demo"
                   className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold focus:outline-none sharp-border"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                    Participant Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={participantName}
+                    onChange={(e) => setParticipantName(e.target.value)}
+                    placeholder="Sarah Connor"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                    Participant Email *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={participantEmail}
+                    onChange={(e) => setParticipantEmail(e.target.value)}
+                    placeholder="sarah@example.com"
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
                     Date *
@@ -269,14 +459,26 @@ export default function MeetingsPage() {
 
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                    Time Slot *
+                    Start Time *
                   </label>
                   <input
-                    type="text"
+                    type="time"
                     required
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    placeholder="10:00 AM EST"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold focus:outline-none sharp-border"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                    End Time *
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
                     className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold focus:outline-none sharp-border"
                   />
                 </div>
@@ -284,44 +486,31 @@ export default function MeetingsPage() {
 
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                  Participant Email *
+                  Timezone
                 </label>
-                <input
-                  type="email"
-                  required
-                  value={participantEmail}
-                  onChange={(e) => setParticipantEmail(e.target.value)}
-                  placeholder="alex@company.com"
-                  className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
-                />
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs font-bold focus:outline-none sharp-border"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST - India)</option>
+                  <option value="America/New_York">America/New_York (EST)</option>
+                  <option value="Europe/London">Europe/London (GMT)</option>
+                  <option value="UTC">UTC</option>
+                </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                    Prospect Name
-                  </label>
-                  <input
-                    type="text"
-                    value={leadName}
-                    onChange={(e) => setLeadName(e.target.value)}
-                    placeholder="e.g. Alex Rostova"
-                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
-                    Company Name
-                  </label>
-                  <input
-                    type="text"
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    placeholder="e.g. Apex Global"
-                    className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
-                  />
-                </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider mb-1">
+                  Description / Agenda
+                </label>
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Demo of Rev AI Sales Automation platform."
+                  className="w-full p-2.5 border border-black bg-[#F1F2F3] text-xs focus:outline-none sharp-border"
+                />
               </div>
 
               <div className="pt-3 border-t border-neutral-200 flex items-center justify-end gap-2">
@@ -333,7 +522,7 @@ export default function MeetingsPage() {
                   Cancel
                 </button>
                 <button type="submit" disabled={submitting} className="btn-pill-primary text-xs">
-                  {submitting ? "Creating..." : "CREATE MEETING"}
+                  {submitting ? "Creating Google Event..." : "SCHEDULE WITH GOOGLE MEET"}
                 </button>
               </div>
             </form>
